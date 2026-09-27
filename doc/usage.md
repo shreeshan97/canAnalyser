@@ -5,6 +5,17 @@
 bash scripts/setup_venv.sh        # uses ~/.local/bin/virtualenv
 ```
 
+## First launch on Mint/Ubuntu: missing `libxcb-cursor0`
+Qt6 xcb needs it, and there is no sudo. One-time user-space fix (already
+applied on this machine, `run.sh` picks it up automatically):
+```bash
+mkdir -p /tmp/qtextract && apt download libxcb-cursor0  # wrapper drops a tar.gz
+tar xzf libxcb-cursor0.tar.gz -C /tmp/qtextract
+dpkg-deb -x $(find /tmp/qtextract -name '*.deb') ~/.local/qtlibs/
+```
+`scripts/run.sh` / `run_virtual.sh` prepend
+`~/.local/qtlibs/usr/lib/x86_64-linux-gnu` to `LD_LIBRARY_PATH`.
+
 ## Run
 ```bash
 bash scripts/run_virtual.sh       # virtual bus, receive_own_messages=True
