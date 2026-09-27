@@ -1,6 +1,3 @@
 .venv/
 __pycache__/
 *.pyc
-# Local-only reference material, never commit:
-CONTEXT.md
-image.png

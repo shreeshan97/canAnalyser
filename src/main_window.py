@@ -115,6 +115,7 @@ class MainWindow(QMainWindow):
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.table, 1)
 
         tx = QHBoxLayout()
@@ -227,13 +228,15 @@ class MainWindow(QMainWindow):
         self._append(fr)
 
     def _append(self, fr: dict):
+        # Delta uses the local receipt clock so TX echoes (time.time()) and
+        # bus frames (device-clock msg.timestamp, e.g. candle uptime) mix safely.
+        local = fr.get("local_ts") or fr["timestamp"] or time.time()
         if self.t0 is None:
-            self.t0 = fr["timestamp"] or time.time()
-        ts = fr["timestamp"] or time.time()
+            self.t0 = local
         if self.ts_mode.currentText() == "Delta":
-            ts_str = f"{ts - self.t0:.4f}"
+            ts_str = f"{local - self.t0:.4f}"
         else:
-            ts_str = f"{ts:.4f}"
+            ts_str = f"{fr['timestamp']:.4f}" if fr["timestamp"] else f"{local:.4f}"
         typ = "EXT." if fr["extended"] else "STD."
         id_str = f"0x{fr['arb_id']:X}"
         data_str = data_to_str(fr["data"])
@@ -311,7 +314,8 @@ class MainWindow(QMainWindow):
         except Exception as e:  # noqa: BLE001
             QMessageBox.critical(self, "TX failed", str(e))
             return
-        self._append({"timestamp": time.time(), "channel": self.channel_label(),
+        self._append({"timestamp": time.time(), "local_ts": time.time(),
+                      "channel": self.channel_label(),
                       "direction": "TX", "extended": msg.is_extended_id,
                       "arb_id": msg.arbitration_id, "dlc": len(msg.data),
                       "data": bytes(msg.data)})

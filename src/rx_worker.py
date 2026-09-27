@@ -1,4 +1,6 @@
 """Reader worker: polls bus.recv() off the GUI thread."""
+import time
+
 from PySide6.QtCore import QObject, Signal
 
 
@@ -30,6 +32,7 @@ class RxWorker(QObject):
                     continue
                 self.frame.emit({
                     "timestamp": msg.timestamp,
+                    "local_ts": time.time(),
                     "channel": self._label,
                     "direction": "RX",
                     "extended": msg.is_extended_id,
