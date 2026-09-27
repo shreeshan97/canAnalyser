@@ -239,7 +239,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(f"canAnalyser {VERSION}")
         self.resize(1280, 950)
-        self.move(200, 50)
+        self.move(200, 30)
         self.setMinimumSize(1000, 650)
         icon = os.path.join(os.path.dirname(__file__), "..", "assets", "icon.png")
         if os.path.exists(icon):

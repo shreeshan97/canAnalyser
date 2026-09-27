@@ -209,7 +209,7 @@ def test_failing_entry_auto_stops(win, qapp):
 @pytest.mark.ui
 def test_default_and_minimum_size(win):
     assert (win.width(), win.height()) == (1280, 950)
-    assert (win.pos().x(), win.pos().y()) == (200, 50)
+    assert (win.pos().x(), win.pos().y()) == (200, 30)
     assert win.minimumWidth() == 1000
     assert win.minimumHeight() == 650
 

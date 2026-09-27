@@ -48,7 +48,7 @@ bash scripts/run.sh               # candle ch 0 @500k normal mode; add --loop-ba
   per-row On checkbox and editable interval; Manual TX defaults to DLC 8);
   CAN Status is a compact card hugging its content with 50% column air
   (backend/channel/state/Rx/Tx/Err); Log (timestamped events).
-- Window opens 1280x950 at (200, 50) (1000x650 minimum); trace table
+- Window opens 1280x950 at (200, 30) (1000x650 minimum); trace table
   takes the stretch; entry tables are 204px inside a 350px bottom dock.
 - Menus: File (Load DBC, Export CSV/ASC, Exit), Measurement (Start/Stop),
   View (Autoscroll, Theme System/Light/Dark, Clear), Trace, Generator,
