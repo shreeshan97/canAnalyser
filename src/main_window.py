@@ -24,10 +24,12 @@ from theme import apply_theme
 VERSION = "v0.1.0"
 COLUMNS = ["Index", "Timestamp", "Channel", "RX/TX", "Type", "ID",
            "Sender", "DLC", "Data", "Name", "Decoded", "Comment"]
-# Exact fixed widths (px @1280 window); Data stretches over the remainder.
+# Exact fixed widths (px @1280 window); Decoded stretches over the remainder.
 COL_WIDTHS = {"Index": 40, "RX/TX": 50, "Type": 50, "Channel": 75,
               "Sender": 75, "ID": 70, "DLC": 40, "Timestamp": 160,
-              "Name": 140, "Decoded": 140, "Comment": 130}
+              "Data": 220}
+# User-draggable columns (Interactive) with their default widths.
+FLEX_WIDTHS = {"Name": 140, "Comment": 130}
 MAX_ROWS = 5000
 
 
@@ -91,10 +93,10 @@ class EntryTable(QWidget):
         self.table.setEditTriggers(
             QTableWidget.DoubleClicked | QTableWidget.EditKeyPressed)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setFixedHeight(self.TABLE_HEIGHT)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.itemChanged.connect(self._item_changed)
+        self._fit_table_height()  # hug rows; button bar stays glued below
         lay.addWidget(self.table)
         lay.addSpacing(4)
         btns = QHBoxLayout()
@@ -138,7 +140,17 @@ class EntryTable(QWidget):
             self.table.setItem(row, 5, QTableWidgetItem(str(interval)))
         finally:
             self._updating = False
+        self._fit_table_height()
         return True
+
+    def _fit_table_height(self):
+        """Hug the rows (header + n x row + frame), capped at TABLE_HEIGHT:
+        the button bar never floats, and full tables scroll internally."""
+        n = self.table.rowCount()
+        row_h = self.table.rowHeight(0) if n else 0
+        h = (self.table.horizontalHeader().sizeHint().height()
+             + n * row_h + 2 * self.table.frameWidth())
+        self.table.setFixedHeight(min(h, self.TABLE_HEIGHT))
 
     def selected(self):
         row = self.table.currentRow()
@@ -157,6 +169,7 @@ class EntryTable(QWidget):
             self.table.removeRow(row)
         finally:
             self._updating = False
+        self._fit_table_height()
         return True
 
     def send_selected(self):
@@ -327,8 +340,11 @@ class MainWindow(QMainWindow):
         self.table.verticalHeader().setVisible(False)
         hdr = self.table.horizontalHeader()
         for c, col in enumerate(COLUMNS):
-            if col == "Data":
+            if col == "Decoded":
                 hdr.setSectionResizeMode(c, QHeaderView.Stretch)
+            elif col in FLEX_WIDTHS:
+                hdr.setSectionResizeMode(c, QHeaderView.Interactive)
+                self.table.setColumnWidth(c, FLEX_WIDTHS[col])
             elif col in COL_WIDTHS:
                 hdr.setSectionResizeMode(c, QHeaderView.Fixed)
                 self.table.setColumnWidth(c, COL_WIDTHS[col])

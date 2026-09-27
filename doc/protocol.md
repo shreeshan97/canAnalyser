@@ -2,10 +2,10 @@
 
 ## RX columns
 `Index | Timestamp | Channel | RX/TX | Type | ID | Sender | DLC | Data | Name | Decoded | Comment`
-- Fixed widths (px @1280 window): Index 40, RX/TX 50, Type 50,
-  Channel 75, Sender 75, ID 70, DLC 40, Timestamp 160,
-  Name 140, Decoded 140, Comment 130; Data stretches over the
-  remainder (~290px).
+- Fixed widths (px): Index 40, RX/TX 50, Type 50, Channel 75,
+  Sender 75, ID 70, DLC 40, Timestamp 160, Data 220.
+- Name (140) and Comment (130) start at defaults but are user-draggable
+  (Interactive); Decoded stretches over the remainder (~210px @1280).
 - Type: `STD.` (11-bit) or `EXT.` (29-bit). ID: `0x123` / `0x12345678`.
 - Sender/Name/Decoded come from the loaded DBC (blank without one);
   Decoded is `SIGNAL=value, ...` in physical units. Comment is reserved.

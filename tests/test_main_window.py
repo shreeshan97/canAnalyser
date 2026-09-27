@@ -317,25 +317,57 @@ def test_entry_interval_validation(win):
 def test_trace_column_pixels(win):
     from PySide6.QtWidgets import QHeaderView
 
-    from main_window import COL_WIDTHS
+    from main_window import COL_WIDTHS, FLEX_WIDTHS
     assert COL_WIDTHS == {"Index": 40, "RX/TX": 50, "Type": 50,
                          "Channel": 75, "Sender": 75, "ID": 70, "DLC": 40,
-                         "Timestamp": 160, "Name": 140, "Decoded": 140,
-                         "Comment": 130}
+                         "Timestamp": 160, "Data": 220}
+    assert FLEX_WIDTHS == {"Name": 140, "Comment": 130}
     hdr = win.table.horizontalHeader()
     data_c = COLUMNS.index("Data")
-    assert hdr.sectionResizeMode(data_c) == QHeaderView.Stretch
+    assert hdr.sectionResizeMode(data_c) == QHeaderView.Fixed
+    assert win.table.columnWidth(data_c) == 220
+    dec_c = COLUMNS.index("Decoded")
+    assert hdr.sectionResizeMode(dec_c) == QHeaderView.Stretch
+    for name in ("Name", "Comment"):
+        c = COLUMNS.index(name)
+        assert hdr.sectionResizeMode(c) == QHeaderView.Interactive
+        assert win.table.columnWidth(c) == FLEX_WIDTHS[name]
     for c, col in enumerate(COLUMNS):
-        if col == "Data":
+        if col in ("Decoded", "Name", "Comment"):
             continue
         assert hdr.sectionResizeMode(c) == QHeaderView.Fixed
         assert win.table.columnWidth(c) == COL_WIDTHS[col]
 
 
 @pytest.mark.ui
-def test_entry_tables_share_height(win):
-    assert win.man_entries.table.height() == 204
-    assert win.dbc_entries.table.height() == 204
+def test_entry_tables_hug_rows(win):
+    import can
+    t = win.man_entries
+    hdr_h = t.table.horizontalHeader().sizeHint().height()
+    frame = 2 * t.table.frameWidth()
+
+    def add_one(i):
+        msg = can.Message(arbitration_id=0x100 + i, data=[i],
+                          is_extended_id=False)
+        assert t.add_entry("Manual", "", msg, 100)
+
+    # Empty: header only, buttons glued right below.
+    assert t.table.height() == hdr_h + frame
+    for i in range(3):  # the reported floating-buttons case
+        add_one(i)
+    row_h = t.table.rowHeight(0)
+    assert t.table.height() == hdr_h + 3 * row_h + frame
+    assert t.table.height() < t.TABLE_HEIGHT
+    t.table.setCurrentCell(0, 0)
+    assert t.remove_selected()
+    assert t.table.height() == hdr_h + 2 * row_h + frame
+    for i in range(3, 3 + t.MAX_ENTRIES):  # fill to cap
+        if not t.add_entry("Manual", "", can.Message(
+                arbitration_id=0x100 + i, data=[i],
+                is_extended_id=False), 100):
+            break
+    assert t.table.height() == t.TABLE_HEIGHT == 204
+    assert len(t.entries) == t.MAX_ENTRIES
 
 
 @pytest.mark.ui
