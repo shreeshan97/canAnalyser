@@ -7,13 +7,9 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QPalette, QColor
 from PySide6.QtCore import Qt
 
-_cached_system = None
-
-
 def _gtk_theme_is_dark() -> bool | None:
     """Ask the desktop (Cinnamon/MATE/GNOME) which GTK theme is active.
     Returns True/False, or None if undetectable."""
-    global _cached_system
     env = os.environ.get("GTK_THEME", "")
     if env:
         return "dark" in env.lower()

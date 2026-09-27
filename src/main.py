@@ -39,8 +39,6 @@ def main(argv=None):
     apply_theme(app, args.theme)
     win = MainWindow(backend=args.backend, channel=args.channel,
                      bitrate=args.bitrate, loop_back=args.loop_back)
-    if args.theme != "system":
-        win.theme_mode = args.theme
     win.show()
     return app.exec()
 

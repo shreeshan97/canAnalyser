@@ -8,7 +8,7 @@ from PySide6.QtCore import QThread, QTimer, Qt
 from PySide6.QtGui import QAction, QActionGroup, QIcon
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QCheckBox, QDoubleSpinBox,
-    QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+    QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSpinBox,
     QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
@@ -185,6 +185,16 @@ class EntryTable(QWidget):
         self._fit_table_height()
         return True
 
+    def clear(self):
+        self.stop_all()
+        self.entries.clear()
+        self._updating = True
+        try:
+            self.table.setRowCount(0)
+        finally:
+            self._updating = False
+        self._fit_table_height()
+
     def send_selected(self):
         _, entry = self.selected()
         if entry is not None:
@@ -286,7 +296,10 @@ class MainWindow(QMainWindow):
         self.err_count = 0
         self._tx_fail = {"manual": 0, "dbc": 0}  # per-source fail streaks
         self.autoscroll = True
-        self.theme_mode = "system"
+        self._ts_delta = True
+        self._view_agg = True
+        self._filter_text = ""
+        self._last_status_fit = 0.0
         self.dbc = DbcManager()
         self.sig_editors = {}
         self._last_decode_failed = False
@@ -330,10 +343,14 @@ class MainWindow(QMainWindow):
         self.view = QComboBox()
         self.view.addItems(["Aggregated", "Raw"])
         self.view.currentTextChanged.connect(self._rebuild_view)
+        self.view.currentTextChanged.connect(
+            lambda m: setattr(self, "_view_agg", m == "Aggregated"))
         filt.addWidget(self.view)
         filt.addWidget(QLabel("Timestamps:"))
         self.ts_mode = QComboBox()
         self.ts_mode.addItems(["Delta", "Absolute"])
+        self.ts_mode.currentTextChanged.connect(
+            lambda m: setattr(self, "_ts_delta", m == "Delta"))
         filt.addWidget(self.ts_mode)
         filt.addStretch(1)
         self.btn_clear = QPushButton("Clear")
@@ -672,21 +689,34 @@ class MainWindow(QMainWindow):
         self.dbc_cyclic = QTimer(self)
         self.dbc_cyclic.timeout.connect(self._dbc_cyclic_tick)
 
-    def _manual_cyclic_tick(self):
-        msg = self._current_tx()
+    def _start_cyclic(self, timer, interval, btn_go, btn_stop, act, label):
+        timer.start(interval)
+        btn_go.setEnabled(False)
+        btn_stop.setEnabled(True)
+        act.setText(f"{label}: Stop Cyclic")
+
+    def _stop_cyclic(self, timer, btn_go, btn_stop, act, label):
+        if timer.isActive():
+            timer.stop()
+        btn_go.setEnabled(True)
+        btn_stop.setEnabled(False)
+        act.setText(f"{label}: Start Cyclic")
+
+    def _cyclic_tick(self, current_fn, stop_fn, label, source):
+        msg = current_fn()
         if msg is None:
-            self.stop_cyclic()
+            stop_fn()
             return
         self._note_cyclic_result(self._transmit(msg, quiet=True),
-                                 self.stop_cyclic, "Manual", "manual")
+                                 stop_fn, label, source)
+
+    def _manual_cyclic_tick(self):
+        self._cyclic_tick(self._current_tx, self.stop_cyclic,
+                          "Manual", "manual")
 
     def _dbc_cyclic_tick(self):
-        msg = self._current_dbc_tx(quiet=True)
-        if msg is None:
-            self.dbc_stop_cyclic()
-            return
-        self._note_cyclic_result(self._transmit(msg, quiet=True),
-                                 self.dbc_stop_cyclic, "DBC", "dbc")
+        self._cyclic_tick(lambda: self._current_dbc_tx(quiet=True),
+                          self.dbc_stop_cyclic, "DBC", "dbc")
 
     # ---- log ----
     def log_msg(self, text: str):
@@ -696,7 +726,6 @@ class MainWindow(QMainWindow):
     # ---- theme ----
     def set_theme(self, mode: str):
         from PySide6.QtWidgets import QApplication
-        self.theme_mode = mode
         eff = apply_theme(QApplication.instance(), mode)
         self.log_msg(f"theme: {eff}")
 
@@ -752,15 +781,7 @@ class MainWindow(QMainWindow):
             return
         name = os.path.basename(self.dbc.path)
         self.dbc_stop_cyclic()
-        t = self.dbc_entries
-        t.stop_all()
-        t.entries.clear()
-        t._updating = True
-        try:
-            t.table.setRowCount(0)
-        finally:
-            t._updating = False
-        t._fit_table_height()
+        self.dbc_entries.clear()
         self.dbc.unload()
         self.dbc_msg.clear()
         self.dbc_msg.setEnabled(False)
@@ -841,7 +862,7 @@ class MainWindow(QMainWindow):
         self.log_msg(
             f"bus open: {self.backend} ch={self.channel} "
             f"{self.bitrate}bps loop_back={self.loop_back}")
-        self._status()
+        self._status(force=True)
 
     def stop(self):
         self.stop_cyclic()
@@ -862,7 +883,7 @@ class MainWindow(QMainWindow):
         self.bus = None
         self._sync_bus_buttons()
         self.log_msg("bus closed")
-        self._status(prefix="stopped — ")
+        self._status(prefix="stopped — ", force=True)
 
     def showEvent(self, event):  # noqa: N802
         super().showEvent(event)
@@ -887,7 +908,7 @@ class MainWindow(QMainWindow):
 
     # ---- RX path ----
     def _matches_rec(self, r: dict) -> bool:
-        f = self.filter_edit.text().strip().lower()
+        f = self._filter_text
         if not f:
             return True
         hay = " ".join(str(r.get(k, "")) for k in
@@ -905,7 +926,7 @@ class MainWindow(QMainWindow):
             self.log_msg(f"error frames on bus (total ERR={self.err_count})")
         self._status()
 
-    def _status(self, prefix=""):
+    def _status(self, prefix="", force=False):
         self.statusBar().showMessage(
             f"{prefix}RX={self.rx_count} TX={self.tx_count} ERR={self.err_count}")
         state = "ready" if self.bus else "stopped"
@@ -913,29 +934,29 @@ class MainWindow(QMainWindow):
                                str(self.rx_count), str(self.tx_count),
                                str(self.err_count)]):
             self.status_table.setItem(0, c, QTableWidgetItem(v))
-        self._fit_status_table()
+        now = time.monotonic()
+        if force or now - self._last_status_fit > 0.5:
+            self._last_status_fit = now
+            self._fit_status_table()
 
-    def _decode_info(self, arb_id, data: bytes):
+    def _decode_info(self, arb_id, data: bytes, channel: str):
+        if not self.dbc.loaded:
+            return channel, "", ""
         sender = self.dbc.sender_of(arb_id)
         name = self.dbc.name_of(arb_id)
         sig = self.dbc.decode(arb_id, data)
-        if sig is None and not name:
-            self._last_decode_failed = False
-            return sender, name, ""
         if sig is None:
-            self._last_decode_failed = True
-            return sender, name, ""
+            self._last_decode_failed = bool(name)
+            return sender or channel, name, ""
         self._last_decode_failed = False
-        return sender, name, DbcManager.fmt_signals(sig)
+        return sender or channel, name, DbcManager.fmt_signals(sig)
 
     def _append(self, fr: dict):
         local = fr.get("local_ts") or fr["timestamp"] or time.time()
         key = (fr["arb_id"], fr["direction"])
         prev = self._last_seen.get(key)
         self._last_seen[key] = local
-        if self.ts_mode.currentText() == "Delta":
-            # Per-ID inter-arrival: gap since the previous frame with the
-            # same ID + direction. First sighting reads 0 (no interval yet).
+        if self._ts_delta:
             ts_str = f"{(local - prev) if prev is not None else 0.0:.6f}"
         else:
             ts_str = datetime.datetime.fromtimestamp(local).strftime(
@@ -944,9 +965,8 @@ class MainWindow(QMainWindow):
         id_str = f"0x{fr['arb_id']:X}"
         data = bytes(fr["data"])
         data_str = data_to_str(data)
-        sender, name, decoded = self._decode_info(fr["arb_id"], data)
-        if not sender:
-            sender = fr["channel"]
+        sender, name, decoded = self._decode_info(
+            fr["arb_id"], data, fr["channel"])
         if self._last_decode_failed:
             self.log_msg(f"decode failed: {id_str} len={len(data)}")
         rec = {"index": self.index + 1, "timestamp": ts_str,
@@ -966,8 +986,7 @@ class MainWindow(QMainWindow):
             self.rx_count += 1
         else:
             self.tx_count += 1
-        key = (fr["arb_id"], fr["direction"])
-        if self.view.currentText() == "Aggregated" and key in self.agg:
+        if self._view_agg and key in self.agg:
             self._set_row(self.agg[key], rec)
         else:
             row = self.table.rowCount()
@@ -979,7 +998,7 @@ class MainWindow(QMainWindow):
             rec["index"] = self.index
             self.table.insertRow(row)
             self._set_row(row, rec)
-            if self.view.currentText() == "Aggregated":
+            if self._view_agg:
                 self.agg[key] = row
         if self.autoscroll:
             self.table.scrollToBottom()
@@ -992,7 +1011,7 @@ class MainWindow(QMainWindow):
         self.table.setRowHidden(row, False)
 
     def _apply_filter(self):
-        # Re-evaluate hiding per table row against record content.
+        self._filter_text = self.filter_edit.text().strip().lower()
         for row in range(self.table.rowCount()):
             cells = [self.table.item(row, c).text() if self.table.item(row, c) else ""
                      for c in range(len(COLUMNS))]
@@ -1017,7 +1036,7 @@ class MainWindow(QMainWindow):
         self._last_seen.clear()
         self.rx_count = self.tx_count = self.err_count = 0
         self._tx_fail = {"manual": 0, "dbc": 0}
-        self._status()
+        self._status(force=True)
 
     # ---- TX path (manual) ----
     def _current_tx(self):
@@ -1068,17 +1087,13 @@ class MainWindow(QMainWindow):
             self._transmit(msg)
 
     def start_cyclic(self):
-        self.cyclic.start(self.tx_interval.value())
-        self.btn_cyclic.setEnabled(False)
-        self.btn_cyclic_stop.setEnabled(True)
-        self.act_man_cyc.setText("Manual: Stop Cyclic")
+        self._start_cyclic(self.cyclic, self.tx_interval.value(),
+                           self.btn_cyclic, self.btn_cyclic_stop,
+                           self.act_man_cyc, "Manual")
 
     def stop_cyclic(self):
-        if self.cyclic.isActive():
-            self.cyclic.stop()
-        self.btn_cyclic.setEnabled(True)
-        self.btn_cyclic_stop.setEnabled(False)
-        self.act_man_cyc.setText("Manual: Start Cyclic")
+        self._stop_cyclic(self.cyclic, self.btn_cyclic, self.btn_cyclic_stop,
+                          self.act_man_cyc, "Manual")
 
     def toggle_manual_cyclic(self):
         if self.cyclic.isActive():
@@ -1114,17 +1129,13 @@ class MainWindow(QMainWindow):
         if not self.dbc_msg.currentText():
             QMessageBox.information(self, "DBC TX", "Load a DBC file first.")
             return
-        self.dbc_cyclic.start(self.dbc_interval.value())
-        self.btn_dbc_cyclic.setEnabled(False)
-        self.btn_dbc_cyclic_stop.setEnabled(True)
-        self.act_dbc_cyc.setText("DBC: Stop Cyclic")
+        self._start_cyclic(self.dbc_cyclic, self.dbc_interval.value(),
+                           self.btn_dbc_cyclic, self.btn_dbc_cyclic_stop,
+                           self.act_dbc_cyc, "DBC")
 
     def dbc_stop_cyclic(self):
-        if self.dbc_cyclic.isActive():
-            self.dbc_cyclic.stop()
-        self.btn_dbc_cyclic.setEnabled(True)
-        self.btn_dbc_cyclic_stop.setEnabled(False)
-        self.act_dbc_cyc.setText("DBC: Start Cyclic")
+        self._stop_cyclic(self.dbc_cyclic, self.btn_dbc_cyclic,
+                          self.btn_dbc_cyclic_stop, self.act_dbc_cyc, "DBC")
 
     def toggle_dbc_cyclic(self):
         if self.dbc_cyclic.isActive():
@@ -1133,8 +1144,6 @@ class MainWindow(QMainWindow):
             self.dbc_start_cyclic()
 
     # ---- multi-message entry table ----
-    MAX_ENTRIES = 16
-
     def add_manual_entry(self):
         msg = self._current_tx()
         if msg is None:
@@ -1142,9 +1151,11 @@ class MainWindow(QMainWindow):
         if self.man_entries.add_entry(
                 "Manual", "", msg, self.tx_interval.value()):
             self.log_msg(f"manual entry added: {hex(msg.arbitration_id)} "
-                         f"@{self.tx_interval.value()}ms")
+                          f"@{self.tx_interval.value()}ms")
         else:
-            QMessageBox.information(self, "Entries", "Entry table is full (16).")
+            QMessageBox.information(
+                self, "Entries",
+                f"Entry table is full ({EntryTable.MAX_ENTRIES}).")
 
     def add_dbc_entry(self):
         name = self.dbc_msg.currentText()
@@ -1159,9 +1170,11 @@ class MainWindow(QMainWindow):
         if self.dbc_entries.add_entry(
                 "DBC", name, msg, self.dbc_interval.value(), payload=summary):
             self.log_msg(f"DBC entry added: {name} "
-                         f"@{self.dbc_interval.value()}ms")
+                          f"@{self.dbc_interval.value()}ms")
         else:
-            QMessageBox.information(self, "Entries", "Entry table is full (16).")
+            QMessageBox.information(
+                self, "Entries",
+                f"Entry table is full ({EntryTable.MAX_ENTRIES}).")
 
     # ---- export ----
     def _filtered_records(self):

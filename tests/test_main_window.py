@@ -400,15 +400,15 @@ def test_status_table_hugs_content(win, qapp):
     base = t.width()
     assert base < 600
     assert t.height() < 120
-    win._status()
+    win._status(force=True)
     t.resizeColumnsToContents()
     want = [int(t.columnWidth(c) * 1.5) for c in range(t.columnCount())]
     expected = 2 * t.frameWidth() + sum(want)
-    win._status()
+    win._status(force=True)
     assert [t.columnWidth(c) for c in range(t.columnCount())] == want
     assert t.width() == expected
     win.rx_count, win.tx_count = 12345678, 87654321
-    win._status()
+    win._status(force=True)
     qapp.processEvents()
     assert t.width() >= base
     assert t.horizontalScrollBar().maximum() == 0

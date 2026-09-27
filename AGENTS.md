@@ -72,6 +72,10 @@ TX Send/Cyclic/entry buttons intentionally stay enabled while stopped
 
 - Prefer editing existing files; don't create files unprompted.
 - Pixel/behavior specs above are test-asserted — update tests + docs together.
+- Hot RX path (`_append`, per frame): no Qt getters or string work per
+  frame — modes/filter are cached (`_ts_delta`, `_view_agg`,
+  `_filter_text`), DBC scans are skipped when unloaded, and the status
+  column refit is throttled (2Hz, `force=True` on start/stop/clear).
 - Quiet timers: timer-driven TX passes `quiet=True` (no modal dialogs over
   Stop); error paths auto-stop after 3 consecutive TX fails.
 - Commits use `git -c user.name="Shreesha SN" -c user.email=...`; terse
