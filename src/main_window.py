@@ -252,7 +252,7 @@ class MainWindow(QMainWindow):
         self.thread = None
         self.worker = None
         self.index = 0
-        self.t0 = None
+        self._last_seen = {}  # (arb_id, direction) -> local_ts of previous frame
         self.agg = {}  # (arb_id, direction) -> row
         self.records: list[dict] = []
         self.rx_count = 0
@@ -814,10 +814,13 @@ class MainWindow(QMainWindow):
 
     def _append(self, fr: dict):
         local = fr.get("local_ts") or fr["timestamp"] or time.time()
-        if self.t0 is None:
-            self.t0 = local
+        key = (fr["arb_id"], fr["direction"])
+        prev = self._last_seen.get(key)
+        self._last_seen[key] = local
         if self.ts_mode.currentText() == "Delta":
-            ts_str = f"{local - self.t0:.6f}"
+            # Per-ID inter-arrival: gap since the previous frame with the
+            # same ID + direction. First sighting reads 0 (no interval yet).
+            ts_str = f"{(local - prev) if prev is not None else 0.0:.6f}"
         else:
             ts_str = datetime.datetime.fromtimestamp(local).strftime(
                 "%H:%M:%S.%f")
@@ -895,7 +898,7 @@ class MainWindow(QMainWindow):
         self.agg.clear()
         self.records.clear()
         self.index = 0
-        self.t0 = None
+        self._last_seen.clear()
         self.rx_count = self.tx_count = self.err_count = 0
         self._tx_fail = {"manual": 0, "dbc": 0}
         self._status()

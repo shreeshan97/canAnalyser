@@ -38,9 +38,11 @@ bash scripts/run.sh               # candle ch 0 @500k normal mode; add --loop-ba
 - Start greys out Start/Setup (Stop blacks in) and back; same for the
   Measurement menu. Setup refuses while running ("Stop first").
 - View Aggregated collapses same ID+direction into one row; Raw appends all.
-- Timestamps Delta = seconds since first frame with microseconds (local
-  receipt clock, monotonic across midnight); Absolute = local wall-clock
-  24h with microseconds (`HH:MM:SS.ffffff`, wraps at midnight).
+- Timestamps Delta = per-ID inter-arrival with microseconds: seconds since
+  the previous frame with the same ID + direction (local receipt clock,
+  ideal for cyclic-timing checks; first sighting of an ID reads 0.000000);
+  Absolute = local wall-clock 24h with microseconds (`HH:MM:SS.ffffff`,
+  wraps at midnight).
 - Filter matches ID hex, data hex, or DBC name/signal text.
 - Autoscroll toggle (toolbar + View menu, default ON).
 - Bottom tabs: Generator with inner Manual | DBC tabs, each with its own

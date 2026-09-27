@@ -378,20 +378,42 @@ def test_status_table_hugs_content(win, qapp):
 
 
 @pytest.mark.trace
-def test_timestamp_delta_has_microseconds(win):
+def test_timestamp_delta_is_per_id_inter_arrival(win):
     import re
     win.view.setCurrentText("Raw")
     win.ts_mode.setCurrentText("Delta")
-    win._append({"timestamp": 0.0, "local_ts": 1758982341.5,
+
+    def rx(arb, at):
+        win._append({"timestamp": 0.0, "local_ts": at,
+                     "channel": "ch", "direction": "RX", "extended": False,
+                     "arb_id": arb, "dlc": 1, "data": bytes([0])})
+    ts = COLUMNS.index("Timestamp")
+    t0 = 1758982341.0
+    rx(0x123, t0)            # first sighting: no interval yet
+    rx(0x124, t0 + 5.0)      # other ID: own key, also first sighting
+    rx(0x123, t0 + 0.1)      # same ID 100ms later
+    rx(0x123, t0 + 0.3005)   # same ID 200.5ms later
+    got = [win.table.item(r, ts).text() for r in range(4)]
+    assert all(re.fullmatch(r"\d+\.\d{6}", v) for v in got)
+    assert got[0] == "0.000000"
+    assert got[1] == "0.000000"
+    assert got[2] == "0.100000"
+    assert got[3] == "0.200500"
+
+
+@pytest.mark.trace
+def test_timestamp_delta_resets_on_clear(win):
+    win.view.setCurrentText("Raw")
+    win.ts_mode.setCurrentText("Delta")
+    win._append({"timestamp": 0.0, "local_ts": 1758982341.0,
                  "channel": "ch", "direction": "RX", "extended": False,
                  "arb_id": 0x123, "dlc": 1, "data": bytes([0])})
-    win._append({"timestamp": 0.0, "local_ts": 1758982341.500123,
+    win.clear()
+    win._append({"timestamp": 0.0, "local_ts": 1758982441.0,
                  "channel": "ch", "direction": "RX", "extended": False,
-                 "arb_id": 0x124, "dlc": 1, "data": bytes([0])})
+                 "arb_id": 0x123, "dlc": 1, "data": bytes([0])})
     ts = COLUMNS.index("Timestamp")
-    assert re.fullmatch(r"\d+\.\d{6}", win.table.item(0, ts).text())
     assert win.table.item(0, ts).text() == "0.000000"
-    assert win.table.item(1, ts).text() == "0.000123"
 
 
 @pytest.mark.trace

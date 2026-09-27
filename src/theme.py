@@ -71,6 +71,16 @@ def apply_theme(app: QApplication, mode: str) -> str:
         dark.setColor(QPalette.ButtonText, Qt.white)
         dark.setColor(QPalette.Highlight, QColor(42, 130, 218))
         dark.setColor(QPalette.HighlightedText, Qt.white)
+        # The two-arg overload above stamps every group, including Disabled:
+        # without explicit Disabled colors a greyed-out button renders
+        # identical to an enabled one. Dim the Disabled group so Start/Stop/
+        # Setup state changes are visible in dark mode too.
+        dim = QColor(128, 128, 128)
+        dark.setColor(QPalette.Disabled, QPalette.WindowText, dim)
+        dark.setColor(QPalette.Disabled, QPalette.Text, dim)
+        dark.setColor(QPalette.Disabled, QPalette.ButtonText, dim)
+        dark.setColor(QPalette.Disabled, QPalette.Button,
+                      QColor(45, 45, 45))
         app.setPalette(dark)
     else:
         app.setPalette(app.style().standardPalette())
