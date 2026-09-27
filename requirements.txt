@@ -2,3 +2,4 @@ PySide6
 python-can
 python-can-candle
 cantools
+pytest  # tests only
