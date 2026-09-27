@@ -30,6 +30,12 @@ class RxWorker(QObject):
                     break
                 if msg is None:
                     continue
+                if not msg.is_rx:
+                    # Firmware TX-echo (candle loopback hands back our own
+                    # frame with is_rx=False ~200us before the real looped-back
+                    # copy). The GUI already draws its own local TX row, so
+                    # drop the echo to avoid double RX rows per send.
+                    continue
                 self.frame.emit({
                     "timestamp": msg.timestamp,
                     "local_ts": time.time(),
