@@ -51,11 +51,17 @@ Normal mode by default (`loop_back=False`); silicon loopback is opt-in.
 Trace columns: Index 40, Timestamp 160, Channel 75, RX/TX 50, Type 50,
 ID 70, Sender 75, DLC 40, Data Fixed 220, Name Interactive (default 140),
 Decoded Stretch, Comment Interactive (default 130).
-Window 1280x950 at (200,30), min 1000x650; bottom dock keeps a separate
-fixed height per Generator tab via `_fit_dock_height()` (DBC clamped to
-`DOCK_MAX`=350) — never use minimums for tab content, QTabWidget minimums
-propagate max-over-pages and pin every tab; entry tables hug rows with
-a 3-row floor (cap 204); status card hugs content with x1.5 width baked
+Window 1280x950 at (200,30), min 1000x650; trace and bottom dock share
+a vertical QSplitter with per-tab dock sizes auto-fit to content on
+real content changes only (DBC load/clear, message switch; clamped to
+DOCK_MAX=350, space taken from the trace). Tab switches and user
+drags are never overridden — each tab remembers its size. The TX dock
+is collapsible to invisible via the splitter handle. Stretch 3:2 —
+never use minimums for tab content; hidden tab pages return stale
+layout sizeHints, so measure content via direct child-widget hints
+(`_page_content_height`). Entry action bars sit directly
+after the ID/Message input rows above their tables; Manual shows 4
+rows then scrolls, DBC shows 3 rows then scrolls; status card hugs content with x1.5 width baked
 into Interactive columns; DBC toolbar button toggles Load/Clear
 (`_sync_dbc_buttons()`; unload stops timers + deletes DBC entries only);
 signal editors live in a capped scroll area (`CappedScroll`, ~3 rows).

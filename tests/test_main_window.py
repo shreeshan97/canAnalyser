@@ -340,38 +340,48 @@ def test_trace_column_pixels(win):
 
 
 @pytest.mark.ui
-def test_entry_tables_hug_rows(win):
+def test_entry_tables_pin_to_visible_rows(win):
     import can
-    t = win.man_entries
-    hdr_h = t.table.horizontalHeader().sizeHint().height()
-    frame = 2 * t.table.frameWidth()
-    empty_row = t.table.verticalHeader().defaultSectionSize()
+    for entries, visible in ((win.man_entries, 4), (win.dbc_entries, 3)):
+        hdr_h = entries.table.horizontalHeader().sizeHint().height()
+        frame = 2 * entries.table.frameWidth()
+        row_h = entries.table.verticalHeader().defaultSectionSize()
+        assert entries.table.height() == hdr_h + visible * row_h + frame
+        for i in range(visible + 2):
+            msg = can.Message(arbitration_id=0x100 + i, data=[i],
+                              is_extended_id=False)
+            assert entries.add_entry("Manual", "", msg, 100)
+        assert entries.table.height() == hdr_h + visible * row_h + frame
 
-    def add_one(i):
-        msg = can.Message(arbitration_id=0x100 + i, data=[i],
-                          is_extended_id=False)
-        assert t.add_entry("Manual", "", msg, 100)
 
-    # Empty: 3-row floor.
-    assert t.table.height() == hdr_h + 3 * empty_row + frame
-    for i in range(3):
-        add_one(i)
-    row_h = t.table.rowHeight(0)
-    assert t.table.height() == hdr_h + 3 * row_h + frame
-    assert t.table.height() < t.TABLE_HEIGHT
-    add_one(3)
-    add_one(4)
-    assert t.table.height() == hdr_h + 5 * row_h + frame
-    t.table.setCurrentCell(0, 0)
-    assert t.remove_selected()
-    assert t.table.height() == hdr_h + 4 * row_h + frame
-    for i in range(5, 5 + t.MAX_ENTRIES):
-        if not t.add_entry("Manual", "", can.Message(
-                arbitration_id=0x100 + i, data=[i],
-                is_extended_id=False), 100):
-            break
-    assert t.table.height() == t.TABLE_HEIGHT == 204
-    assert len(t.entries) == t.MAX_ENTRIES
+@pytest.mark.ui
+def test_entry_action_bar_above_table(win):
+    from PySide6.QtWidgets import QSplitter
+    for entries in (win.man_entries, win.dbc_entries):
+        lay = entries.layout()
+        assert lay.itemAt(0).layout() is not None
+        assert lay.itemAt(0).layout().indexOf(entries.btn_add) >= 0
+        assert lay.indexOf(entries.table) > 0
+    assert isinstance(win.split, QSplitter)
+    assert win.split.indexOf(win.table) == 0
+    assert win.split.indexOf(win.tabs) == 1
+
+
+@pytest.mark.ui
+def test_splitter_per_tab_dock_sizes(win, qapp):
+    from tests.conftest import DEMO_DBC_PATH
+    win.load_dbc(DEMO_DBC_PATH)
+    win.dbc_msg.setCurrentText("ManySignals")
+    qapp.processEvents()
+    win.gen_tabs.setCurrentIndex(0)
+    qapp.processEvents()
+    man_dock = win.split.sizes()[1]
+    win.gen_tabs.setCurrentIndex(1)
+    qapp.processEvents()
+    dbc_dock = win.split.sizes()[1]
+    assert dbc_dock > man_dock
+    assert man_dock < 300
+    assert dbc_dock <= 350
 
 
 @pytest.mark.ui
@@ -579,25 +589,18 @@ def test_clear_dbc_stops_and_deletes_dbc_entries(win, qapp):
 
 
 @pytest.mark.dbc
-def test_signal_editors_scroll_cap_keeps_dock_constant(win, qapp):
+def test_signal_editors_scroll_cap(win, qapp):
     win.tabs.setCurrentIndex(0)
-    win.gen_tabs.setCurrentIndex(0)
+    win.gen_tabs.setCurrentIndex(1)
     qapp.processEvents()
-    dock_before = win.tabs.height()
-    trace_before = win.table.height()
-    man_min_before = win.gen_tabs.widget(0).minimumSizeHint().height()
     win.load_dbc(DEMO_DBC_PATH)
     win.dbc_msg.setCurrentText("ManySignals")
     qapp.processEvents()
     assert win.dbc_sig_layout.rowCount() == 9
     unit = win.dbc_interval.sizeHint().height()
     assert win.dbc_sig_scroll.maximumHeight() < 9 * unit
-    win.gen_tabs.setCurrentIndex(1)
-    qapp.processEvents()
-    assert win.tabs.height() <= 350
-    assert win.tabs.height() > dock_before
-    win.gen_tabs.setCurrentIndex(0)
-    qapp.processEvents()
-    assert win.tabs.height() == dock_before
-    assert win.table.height() == trace_before
-    assert win.gen_tabs.widget(0).minimumSizeHint().height() == man_min_before
+    h = win.dbc_entries.table.height()
+    hdr_h = win.dbc_entries.table.horizontalHeader().sizeHint().height()
+    frame = 2 * win.dbc_entries.table.frameWidth()
+    row_h = win.dbc_entries.table.verticalHeader().defaultSectionSize()
+    assert h == hdr_h + 3 * row_h + frame

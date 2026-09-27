@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QCheckBox, QDoubleSpinBox,
     QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSpinBox,
-    QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
+    QSplitter, QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView
@@ -83,34 +83,30 @@ class CappedScroll(QScrollArea):
 
 
 class EntryTable(QWidget):
-    """One transmissions table + button bar, owned by a generator tab."""
+    """Transmissions action bar above the table, owned by a generator tab.
+
+    The bar sits directly after the tab's ID/Message input row so Add
+    is next to the fields it consumes; the table below shows
+    visible_rows entries then scrolls."""
 
     COLS = ["On", "Type", "ID", "Name", "Payload", "Interval (ms)"]
     MAX_ENTRIES = 16
-    TABLE_HEIGHT = 204  # entry tables share one height in both tabs
 
-    def __init__(self, parent, add_label, add_fn, transmit_fn, log_fn):
+    def __init__(self, parent, add_label, add_fn, transmit_fn, log_fn,
+                 visible_rows=4):
         super().__init__(parent)
         self._add_fn = add_fn
         self._transmit = transmit_fn
         self._log = log_fn
         self.entries: list[dict] = []
         self._updating = False
+        self._visible_rows = visible_rows
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(4)
-        self.table = QTableWidget(0, len(self.COLS))
-        self.table.setHorizontalHeaderLabels(self.COLS)
-        self.table.setEditTriggers(
-            QTableWidget.DoubleClicked | QTableWidget.EditKeyPressed)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.itemChanged.connect(self._item_changed)
-        self._fit_table_height()
-        lay.addWidget(self.table)
-        lay.addSpacing(4)
+        lay.setSpacing(2)
         btns = QHBoxLayout()
+        btns.setContentsMargins(0, 0, 0, 0)
+        btns.setSpacing(4)
         self.btn_add = QPushButton(add_label)
         self.btn_remove = QPushButton("Remove")
         self.btn_send = QPushButton("Send Selected Once")
@@ -126,6 +122,16 @@ class EntryTable(QWidget):
             btns.addWidget(b)
         btns.addStretch(1)
         lay.addLayout(btns)
+        self.table = QTableWidget(0, len(self.COLS))
+        self.table.setHorizontalHeaderLabels(self.COLS)
+        self.table.setEditTriggers(
+            QTableWidget.DoubleClicked | QTableWidget.EditKeyPressed)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.itemChanged.connect(self._item_changed)
+        self._fit_table_height()
+        lay.addWidget(self.table)
 
     def add_entry(self, kind, name, msg, interval, payload=""):
         if len(self.entries) >= self.MAX_ENTRIES:
@@ -155,15 +161,14 @@ class EntryTable(QWidget):
         return True
 
     def _fit_table_height(self):
-        """Hug the rows (header + n x row + frame), floored at 3 empty rows
-        so the table reads as a table even with no entries, capped at
-        TABLE_HEIGHT: the button bar never floats, full tables scroll."""
+        """Pin the table to visible_rows entries so extra rows scroll and
+        the dock never jumps as entries are added or removed."""
         n = self.table.rowCount()
         row_h = (self.table.rowHeight(0) if n
                  else self.table.verticalHeader().defaultSectionSize())
         h = (self.table.horizontalHeader().sizeHint().height()
-             + max(n, 3) * row_h + 2 * self.table.frameWidth())
-        self.table.setFixedHeight(min(h, self.TABLE_HEIGHT))
+             + self._visible_rows * row_h + 2 * self.table.frameWidth())
+        self.table.setFixedHeight(h)
 
     def selected(self):
         row = self.table.currentRow()
@@ -379,20 +384,22 @@ class MainWindow(QMainWindow):
                 self.table.setColumnWidth(c, COL_WIDTHS[col])
             else:
                 hdr.setSectionResizeMode(c, QHeaderView.ResizeToContents)
-        layout.addWidget(self.table, 1)
 
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("QTabBar::tab { width: 150px; }")
         self.tabs.addTab(self._generator_tab(), "Generator")
         self.tabs.addTab(self._status_tab(), "CAN Status")
         self.tabs.addTab(self._log_tab(), "Log")
-        self.tabs.setMaximumHeight(DOCK_MAX)
-        layout.addWidget(self.tabs)
-        for entries in (self.man_entries, self.dbc_entries):
-            m = entries.table.model()
-            m.rowsInserted.connect(lambda *a: self._fit_dock_height())
-            m.rowsRemoved.connect(lambda *a: self._fit_dock_height())
-            m.modelReset.connect(lambda *a: self._fit_dock_height())
+        split = QSplitter(Qt.Vertical)
+        split.addWidget(self.table)
+        split.addWidget(self.tabs)
+        split.setStretchFactor(0, 3)
+        split.setStretchFactor(1, 2)
+        split.setSizes([560, 265])
+        split.splitterMoved.connect(self._remember_dock_size)
+        split.setChildrenCollapsible(True)
+        self.split = split
+        layout.addWidget(split, 1)
 
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage("idle — press Start")
@@ -406,38 +413,97 @@ class MainWindow(QMainWindow):
         man = QWidget()
         man_lay = QVBoxLayout(man)
         man_lay.setContentsMargins(0, 0, 0, 0)
-        man_lay.setSpacing(4)
+        man_lay.setSpacing(2)
         man_lay.addWidget(self._manual_group())
         self.man_entries = EntryTable(
             self, "Add Manual", self.add_manual_entry,
-            lambda msg: self._transmit(msg, quiet=True), self.log_msg)
+            lambda msg: self._transmit(msg, quiet=True), self.log_msg,
+            visible_rows=4)
         man_lay.addWidget(self.man_entries)
+        man_lay.addStretch(1)
         dbc = QWidget()
         dbc_lay = QVBoxLayout(dbc)
         dbc_lay.setContentsMargins(0, 0, 0, 0)
-        dbc_lay.setSpacing(4)
+        dbc_lay.setSpacing(2)
         dbc_lay.addWidget(self._dbc_group())
         self.dbc_entries = EntryTable(
             self, "Add DBC", self.add_dbc_entry,
-            lambda msg: self._transmit(msg, quiet=True), self.log_msg)
+            lambda msg: self._transmit(msg, quiet=True), self.log_msg,
+            visible_rows=3)
         dbc_lay.addWidget(self.dbc_entries)
+        dbc_lay.addStretch(1)
         self.gen_tabs.addTab(man, "Manual")
         self.gen_tabs.addTab(dbc, "DBC")
-        self.gen_tabs.currentChanged.connect(lambda _i: self._fit_dock_height())
+        self._dock_sizes = {0: [560, 265], 1: [475, 350]}
+        self.gen_tabs.currentChanged.connect(self._apply_dock_size)
         lay.addWidget(self.gen_tabs)
         return w
 
-    def _fit_dock_height(self):
+    def _apply_dock_size(self, idx):
+        """Restore the remembered dock size for this tab. Tab switches
+        never recompute: user drags and content refits both stick."""
+        if not hasattr(self, "split"):
+            return
+        sizes = self._dock_sizes.get(idx)
+        if sizes is not None:
+            self.split.blockSignals(True)
+            try:
+                self.split.setSizes(sizes)
+            finally:
+                self.split.blockSignals(False)
+
+    def _remember_dock_size(self, _pos, _index):
+        if hasattr(self, "gen_tabs"):
+            self._dock_sizes[self.gen_tabs.currentIndex()] = \
+                self.split.sizes()
+
+    def _page_content_height(self, page):
+        """Fresh content height of a generator page, bypassing the stale
+        per-item caches hidden tab pages keep (direct widget hints)."""
+        lay = page.layout()
+        if lay is None:
+            return 0
+        h = 0
+        gaps = 0
+        for i in range(lay.count()):
+            it = lay.itemAt(i)
+            wd = it.widget()
+            if wd is None or wd.isHidden():
+                continue
+            h += wd.sizeHint().height()
+            gaps += 1
+        m = lay.contentsMargins()
+        if gaps:
+            h += m.top() + m.bottom() + lay.spacing() * (gaps - 1)
+        return h
+
+    def _refit_dock_to_content(self, idx):
+        """Recompute the dock size for one tab from its content need,
+        taking the space from the RX trace. Only called when content
+        actually changes (DBC load/clear, message switch)."""
+        if not hasattr(self, "split") or not hasattr(self, "_dock_sizes"):
+            return
         try:
-            page = self.gen_tabs.currentWidget()
+            page = self.gen_tabs.widget(idx)
         except RuntimeError:
             return
         if page is None:
             return
-        need = (page.sizeHint().height()
+        need = (self._page_content_height(page)
                 + self.gen_tabs.tabBar().sizeHint().height()
                 + self.tabs.tabBar().sizeHint().height())
-        self.tabs.setFixedHeight(min(need, DOCK_MAX))
+        total = sum(self.split.sizes()) or 825
+        need = max(150, min(need, DOCK_MAX, int(total * 0.65)))
+        self._dock_sizes[idx] = [total - need, need]
+        if self.gen_tabs.currentIndex() == idx:
+            self.split.blockSignals(True)
+            try:
+                self.split.setSizes(self._dock_sizes[idx])
+            finally:
+                self.split.blockSignals(False)
+
+    def _fit_dock_height(self):
+        return
 
     def _active_entries(self):
         return self.man_entries if self.gen_tabs.currentIndex() == 0 \
@@ -446,7 +512,8 @@ class MainWindow(QMainWindow):
     def _manual_group(self):
         w = QWidget()
         lay = QHBoxLayout(w)
-        lay.setContentsMargins(4, 4, 4, 4)
+        lay.setContentsMargins(4, 2, 4, 2)
+        lay.setSpacing(4)
         lay.addWidget(QLabel("ID (Hex):"))
         self.tx_id = QLineEdit("123")
         self.tx_id.setMaximumWidth(80)
@@ -479,8 +546,11 @@ class MainWindow(QMainWindow):
     def _dbc_group(self):
         w = QWidget()
         lay = QVBoxLayout(w)
-        lay.setContentsMargins(4, 4, 4, 4)
+        lay.setContentsMargins(4, 2, 4, 2)
+        lay.setSpacing(2)
         top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        top.setSpacing(4)
         lbl_msg = QLabel("Message:")
         lbl_msg.setAlignment(Qt.AlignVCenter)
         self.dbc_msg = QComboBox()
@@ -805,24 +875,24 @@ class MainWindow(QMainWindow):
             self.dbc_sig_layout.removeRow(0)
         self.sig_editors = {}
         self.dbc_sig_scroll.setVisible(False)
-        if not name:
-            return
-        msg = self.dbc.get_message(name)
-        if msg is None:
-            return
-        self.dbc_dlc.setText(f"DLC: {msg.length}")
-        for s in msg.signals:
-            lo = float(s.minimum) if s.minimum is not None else -1e9
-            hi = float(s.maximum) if s.maximum is not None else 1e9
-            box = QDoubleSpinBox()
-            box.setRange(lo, hi)
-            box.setDecimals(3)
-            box.setValue(max(lo, min(hi, 0.0)))
-            unit = f" [{s.unit}]" if s.unit else ""
-            self.dbc_sig_layout.addRow(f"{s.name}{unit}:", box)
-            self.sig_editors[s.name] = box
-        self.dbc_sig_scroll.setVisible(bool(self.sig_editors))
+        if name:
+            msg = self.dbc.get_message(name)
+            if msg is not None:
+                self.dbc_dlc.setText(f"DLC: {msg.length}")
+                for s in msg.signals:
+                    lo = float(s.minimum) if s.minimum is not None else -1e9
+                    hi = float(s.maximum) if s.maximum is not None else 1e9
+                    box = QDoubleSpinBox()
+                    box.setRange(lo, hi)
+                    box.setDecimals(3)
+                    box.setValue(max(lo, min(hi, 0.0)))
+                    unit = f" [{s.unit}]" if s.unit else ""
+                    self.dbc_sig_layout.addRow(f"{s.name}{unit}:", box)
+                    self.sig_editors[s.name] = box
+                self.dbc_sig_scroll.setVisible(bool(self.sig_editors))
         self._fit_dock_height()
+        if hasattr(self, "gen_tabs"):
+            self._refit_dock_to_content(1)
 
     # ---- bus control ----
     def channel_label(self):
