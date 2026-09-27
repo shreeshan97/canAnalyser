@@ -30,10 +30,10 @@ def test_worker_forwards_only_real_frames():
                    _msg(is_error_frame=True),               # bus fault
                    _msg(),                                  # real frame
                    ])
-    got, errs = [], []
+    got, err_counts = [], []
     w = RxWorker(bus, "ch")
     w.frame.connect(got.append)
-    w.err_frame.connect(lambda: errs.append(1))
+    w.err_frame.connect(err_counts.append)
     orig_recv = bus.recv
     state = {"nones": 0}
 
@@ -48,4 +48,26 @@ def test_worker_forwards_only_real_frames():
     w.run()
     assert len(got) == 1
     assert got[0]["arb_id"] == 0x123
-    assert errs == [1]
+    assert sum(err_counts) == 1
+
+
+def test_worker_batches_error_storm():
+    # 50 error frames must arrive as a few batched emissions, not 50 signals.
+    bus = FakeBus([None] + [_msg(is_error_frame=True)] * 50)
+    err_counts = []
+    w = RxWorker(bus, "ch")
+    w.err_frame.connect(err_counts.append)
+    orig_recv = bus.recv
+    state = {"nones": 0}
+
+    def recv(timeout=None):
+        m = orig_recv(timeout)
+        if m is None:
+            state["nones"] += 1
+            if state["nones"] >= 2:
+                w.stop()
+        return m
+    bus.recv = recv
+    w.run()
+    assert sum(err_counts) == 50
+    assert len(err_counts) < 50

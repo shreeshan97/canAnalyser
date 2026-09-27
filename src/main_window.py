@@ -82,6 +82,7 @@ class MainWindow(QMainWindow):
         self.rx_count = 0
         self.tx_count = 0
         self.err_count = 0
+        self._tx_fail_streak = 0  # consecutive TX failures (auto-stop cyclic)
         self.autoscroll = True
         self.theme_mode = "system"
         self.dbc = DbcManager()
@@ -381,9 +382,25 @@ class MainWindow(QMainWindow):
 
     def _build_timers(self):
         self.cyclic = QTimer(self)
-        self.cyclic.timeout.connect(self.send_once)
+        self.cyclic.timeout.connect(self._manual_cyclic_tick)
         self.dbc_cyclic = QTimer(self)
-        self.dbc_cyclic.timeout.connect(self.dbc_send_once)
+        self.dbc_cyclic.timeout.connect(self._dbc_cyclic_tick)
+
+    def _manual_cyclic_tick(self):
+        msg = self._current_tx()
+        if msg is None:
+            self.stop_cyclic()
+            return
+        self._note_cyclic_result(self._transmit(msg, quiet=True),
+                                 self.stop_cyclic, "Manual")
+
+    def _dbc_cyclic_tick(self):
+        msg = self._current_dbc_tx(quiet=True)
+        if msg is None:
+            self.dbc_stop_cyclic()
+            return
+        self._note_cyclic_result(self._transmit(msg, quiet=True),
+                                 self.dbc_stop_cyclic, "DBC")
 
     # ---- log ----
     def log_msg(self, text: str):
@@ -537,8 +554,8 @@ class MainWindow(QMainWindow):
     def on_frame(self, fr: dict):
         self._append(fr)
 
-    def on_err_frame(self):
-        self.err_count += 1
+    def on_err_frame(self, count=1):
+        self.err_count += count
         now = time.monotonic()
         if now - self._last_errstorm > 1.0:
             self._last_errstorm = now
@@ -651,6 +668,7 @@ class MainWindow(QMainWindow):
         self.index = 0
         self.t0 = None
         self.rx_count = self.tx_count = self.err_count = 0
+        self._tx_fail_streak = 0
         self._status()
 
     # ---- TX path (manual) ----
@@ -664,22 +682,37 @@ class MainWindow(QMainWindow):
         return can.Message(arbitration_id=arb_id, data=data,
                            is_extended_id=arb_id > 0x7FF)
 
-    def _transmit(self, msg: can.Message) -> bool:
+    def _transmit(self, msg: can.Message, quiet=False) -> bool:
+        """Send one frame. Timer-driven callers must pass quiet=True so a
+        failing bus can never stack modal dialogs over the Stop button."""
         if self.bus is None:
-            QMessageBox.information(self, "TX", "Press Start first.")
+            if not quiet:
+                QMessageBox.information(self, "TX", "Press Start first.")
             return False
         try:
             self.bus.send(msg)
         except Exception as e:  # noqa: BLE001
-            QMessageBox.critical(self, "TX failed", str(e))
-            self.log_msg(f"TX failed: {e}")
+            self._tx_fail_streak += 1
+            self.log_msg(f"TX failed ({self._tx_fail_streak}x): {e}")
+            if not quiet:
+                QMessageBox.critical(self, "TX failed", str(e))
             return False
+        self._tx_fail_streak = 0
         self._append({"timestamp": time.time(), "local_ts": time.time(),
                       "channel": self.channel_label(),
                       "direction": "TX", "extended": msg.is_extended_id,
                       "arb_id": msg.arbitration_id, "dlc": len(msg.data),
                       "data": bytes(msg.data)})
         return True
+
+    def _note_cyclic_result(self, ok: bool, stop_fn, label: str):
+        if ok:
+            return
+        if self._tx_fail_streak >= 3:
+            stop_fn()
+            self.log_msg(f"{label} cyclic auto-stopped: TX failing, "
+                         "bus may be in error state")
+            self._status()
 
     def send_once(self):
         msg = self._current_tx()
@@ -706,16 +739,20 @@ class MainWindow(QMainWindow):
             self.start_cyclic()
 
     # ---- TX path (DBC) ----
-    def _current_dbc_tx(self):
+    def _current_dbc_tx(self, quiet=False):
         name = self.dbc_msg.currentText()
         if not name:
-            QMessageBox.information(self, "DBC TX", "Load a DBC file first.")
+            if not quiet:
+                QMessageBox.information(self, "DBC TX", "Load a DBC file first.")
             return None
         values = {sn: box.value() for sn, box in self.sig_editors.items()}
         try:
             arb_id, raw = self.dbc.encode(name, values)
         except DbcError as e:
-            QMessageBox.warning(self, "DBC TX", str(e))
+            if not quiet:
+                QMessageBox.warning(self, "DBC TX", str(e))
+            else:
+                self.log_msg(f"DBC TX encode failed: {e}")
             return None
         return can.Message(arbitration_id=arb_id, data=list(raw),
                            is_extended_id=arb_id > 0x7FF)
@@ -849,7 +886,15 @@ class MainWindow(QMainWindow):
     def _send_entry(self, entry):
         if self.bus is None or not entry["enabled"]:
             return
-        self._transmit(entry["msg"])
+        if self._transmit(entry["msg"], quiet=True):
+            entry["fails"] = 0
+        else:
+            entry["fails"] = entry.get("fails", 0) + 1
+            if entry["fails"] >= 3:
+                self._entry_timer_off(entry)
+                self.log_msg(
+                    f"entry 0x{entry['msg'].arbitration_id:X} auto-stopped: "
+                    "TX failing, bus may be in error state")
 
     def remove_selected_entry(self):
         row, entry = self._selected_entry()

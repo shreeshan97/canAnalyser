@@ -3,6 +3,7 @@ import time
 
 import pytest
 import can
+from unittest import mock
 from PySide6.QtCore import Qt
 
 from main_window import COLUMNS, MainWindow
@@ -149,6 +150,49 @@ def test_log_records_bus_open(win, qapp):
     win.start()
     assert any("bus open" in win.log_list.item(i).text()
                for i in range(win.log_list.count()))
+
+
+class FailingBus:
+    """Bus whose send always raises: simulates error-state hardware."""
+    def send(self, msg, timeout=None):
+        import can
+        raise can.CanError("bus off")
+
+    def shutdown(self):
+        pass
+
+
+def test_failing_cyclic_auto_stops_without_modals(win, qapp, monkeypatch):
+    # If a modal ever appears the test would hang; fail loudly instead.
+    boom = AssertionError("modal popup during cyclic!")
+    monkeypatch.setattr(
+        "main_window.QMessageBox",
+        mock.Mock(critical=mock.Mock(side_effect=boom),
+                  information=mock.Mock(side_effect=boom),
+                  warning=mock.Mock(side_effect=boom)))
+    win.bus = FailingBus()
+    win.tx_id.setText("100")
+    win.tx_dlc.setValue(1)
+    win.tx_data.setText("00")
+    win.tx_interval.setValue(10)
+    win.start_cyclic()
+    _pump(qapp, 0.5)
+    assert not win.cyclic.isActive()
+    assert any("auto-stopped" in win.log_list.item(i).text()
+               for i in range(win.log_list.count()))
+
+
+def test_failing_entry_auto_stops(win, qapp):
+    win.bus = FailingBus()
+    win.tx_id.setText("100")
+    win.tx_dlc.setValue(1)
+    win.tx_data.setText("00")
+    win.add_manual_entry()
+    win.start_all_entries()
+    _pump(qapp, 0.5)
+    entry = win.entries[0]
+    assert entry["timer"] is None or not entry["timer"].isActive()
+    assert entry.get("fails", 0) >= 3
 
 
 def test_default_and_minimum_size(win):

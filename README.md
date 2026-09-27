@@ -18,4 +18,4 @@ bash scripts/run_tests.sh   # pytest, offscreen Qt, virtual bus + fixture DBC
 ```
 `tests/` covers DBC decode/encode, TX parsing, exporters, themes, the
 RX worker's echo/error filtering, and the main window (trace, filter,
-TX, entry table, clear, autoscroll) — 36 tests, no hardware needed.
+TX, entry table, clear, autoscroll) — 39 tests, no hardware needed.
