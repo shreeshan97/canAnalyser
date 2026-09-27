@@ -13,8 +13,10 @@ def parse_args(argv=None):
     ap.add_argument("--backend", default="candle", choices=["candle", "virtual", "socketcan"])
     ap.add_argument("--channel", default=None)
     ap.add_argument("--bitrate", type=int, default=500000)
-    ap.add_argument("--no-loop-back", dest="loop_back", action="store_false",
-                    default=True)
+    ap.add_argument("--loop-back", dest="loop_back", action="store_true",
+                    default=False,
+                    help="silicon-internal loopback (no wiring); default off, "
+                         "assumes TX/RX physically connected")
     args = ap.parse_args(argv)
     if args.virtual:
         args.backend = "virtual"

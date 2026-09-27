@@ -7,6 +7,7 @@ from PySide6.QtCore import QObject, Signal
 class RxWorker(QObject):
     frame = Signal(dict)
     error = Signal(str)
+    err_frame = Signal()
     finished = Signal()
 
     def __init__(self, bus, channel_label: str):
@@ -29,6 +30,11 @@ class RxWorker(QObject):
                     self.error.emit(str(e))
                     break
                 if msg is None:
+                    continue
+                if msg.is_error_frame:
+                    # Bus fault signalling (e.g. lone node in normal mode:
+                    # no peer to ACK). Count it, keep it out of the table.
+                    self.err_frame.emit()
                     continue
                 if not msg.is_rx:
                     # Firmware TX-echo (candle loopback hands back our own

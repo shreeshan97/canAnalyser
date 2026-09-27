@@ -28,7 +28,9 @@ bash scripts/run.sh               # candle ch 0 @500k; add --bitrate/--loop-back
 - If device shows in `lsusb` but app reports none / access denied, it is a udev
   permission issue: `ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="606f", MODE="0666"`
   in `/etc/udev/rules.d/99-candle.rules`, reload rules, unplug/replug.
-- Default test: internal `loop_back=True`, no wiring needed (same as canTest01.py).
+- Default is normal mode (`loop_back` off): TX/RX are physically wired together
+  so the loop is done by hardware. Tick "Silicon loop-back" in Setup (or pass
+  `--loop-back`) only for a wiring-free internal self-test.
 
 ## UI
 - Start/Stop opens/closes the bus and reader thread; Setup Interface sets

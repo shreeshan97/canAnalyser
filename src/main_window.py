@@ -29,8 +29,9 @@ class SetupDialog(QDialog):
         for b in ["125000", "250000", "500000", "1000000"]:
             self.bitrate.addItem(b)
         self.bitrate.setCurrentText(str(bitrate))
-        self.loop_back = QCheckBox("Hardware loop-back (candle)")
+        self.loop_back = QCheckBox("Silicon loop-back (candle, no wiring)")
         self.loop_back.setChecked(loop_back)
+        self.loop_back.setToolTip("Off when TX/RX are physically wired together")
         form = QFormLayout(self)
         form.addRow("Backend", self.backend)
         form.addRow("Channel", self.channel)
@@ -51,7 +52,7 @@ class SetupDialog(QDialog):
 
 class MainWindow(QMainWindow):
     def __init__(self, backend="candle", channel=0, bitrate=500000,
-                 loop_back=True):
+                 loop_back=False):
         super().__init__()
         self.setWindowTitle("canAnalyser")
         self.resize(1100, 700)
@@ -67,6 +68,7 @@ class MainWindow(QMainWindow):
         self.agg = {}  # (arb_id, direction) -> row
         self.rx_count = 0
         self.tx_count = 0
+        self.err_count = 0
         self._build_ui()
         self._build_timers()
 
@@ -174,6 +176,7 @@ class MainWindow(QMainWindow):
         self.thread.started.connect(self.worker.run)
         self.worker.frame.connect(self.on_frame)
         self.worker.error.connect(lambda m: self.statusBar().showMessage(m))
+        self.worker.err_frame.connect(self.on_err_frame)
         self.worker.finished.connect(self.thread.quit)
         self.thread.start()
         self.btn_start.setEnabled(False)
@@ -198,7 +201,7 @@ class MainWindow(QMainWindow):
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
         self.statusBar().showMessage(
-            f"stopped — RX={self.rx_count} TX={self.tx_count}")
+            f"stopped — RX={self.rx_count} TX={self.tx_count} ERR={self.err_count}")
 
     def closeEvent(self, event):  # noqa: N802
         self.stop()
@@ -226,6 +229,14 @@ class MainWindow(QMainWindow):
 
     def on_frame(self, fr: dict):
         self._append(fr)
+
+    def on_err_frame(self):
+        self.err_count += 1
+        self._status()
+
+    def _status(self):
+        self.statusBar().showMessage(
+            f"RX={self.rx_count} TX={self.tx_count} ERR={self.err_count}")
 
     def _append(self, fr: dict):
         # Delta uses the local receipt clock so TX echoes (time.time()) and
@@ -262,7 +273,7 @@ class MainWindow(QMainWindow):
             if self.view.currentText() == "Aggregated":
                 self.agg[key] = row
         self.table.scrollToBottom()
-        self.statusBar().showMessage(f"RX={self.rx_count} TX={self.tx_count}")
+        self._status()
 
     def _set_row(self, row, idx, ts_str, fr, typ, id_str, data_str):
         vals = [str(idx), ts_str, fr["channel"], fr["direction"],
@@ -289,7 +300,7 @@ class MainWindow(QMainWindow):
         self.agg.clear()
         self.index = 0
         self.t0 = None
-        self.rx_count = self.tx_count = 0
+        self.rx_count = self.tx_count = self.err_count = 0
 
     # ---- TX path ----
     def _current_tx(self):
