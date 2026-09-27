@@ -276,7 +276,6 @@ class MainWindow(QMainWindow):
         self.theme_mode = "system"
         self.dbc = DbcManager()
         self.sig_editors = {}
-        self._tx_fail = {"manual": 0, "dbc": 0}
         self._last_decode_failed = False
         self._last_errstorm = 0.0
         self._build_ui()
