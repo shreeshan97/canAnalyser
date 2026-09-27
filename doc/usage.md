@@ -19,7 +19,7 @@ dpkg-deb -x $(find /tmp/qtextract -name '*.deb') ~/.local/qtlibs/
 ## Run
 ```bash
 bash scripts/run_virtual.sh       # virtual bus, receive_own_messages=True
-bash scripts/run.sh               # candle ch 0 @500k; add --bitrate/--loop-back off
+bash scripts/run.sh               # candle ch 0 @500k normal mode; add --loop-back for self-test
 .venv/bin/python src/main.py --help
 ```
 
@@ -36,5 +36,19 @@ bash scripts/run.sh               # candle ch 0 @500k; add --bitrate/--loop-back
 - Start/Stop opens/closes the bus and reader thread; Setup Interface sets
   backend, bitrate, channel, loop-back.
 - View Aggregated collapses same ID+direction into one row; Raw appends all.
-- Timestamps Delta = seconds since first frame; Absolute = bus timestamp.
-- Filter matches ID hex (e.g. `123`) or data hex substring.
+- Timestamps Delta = seconds since first frame (local receipt clock, safe to
+  mix TX echoes and device-clocked RX); Absolute = bus timestamp.
+- Filter matches ID hex, data hex, or DBC name/signal text.
+- Autoscroll toggle (toolbar + View menu, default ON).
+- Bottom tabs: Generator (Manual raw on top, DBC below), CAN Status
+  (backend/channel/state/Rx/Tx/Err), Log (timestamped events).
+- Menus: File (Load DBC, Export CSV/ASC, Exit), Measurement (Start/Stop),
+  View (Autoscroll, Theme System/Light/Dark, Clear), Trace, Generator,
+  Help → About (v0.1.0).
+
+## DBC mode
+- File → Load DBC (or Load DBC... button). RX rows gain Sender/Name/Decoded
+  columns; the DBC generator offers a message picker + signal editors with
+  range limits; DLC is automatic. Works with any `.dbc`.
+- Export: CSV takes all columns incl. decoded text (filter applied);
+  ASC writes Vector-compatible `(ts) ch id#data` lines for replay elsewhere.

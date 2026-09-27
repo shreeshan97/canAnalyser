@@ -13,6 +13,7 @@ def parse_args(argv=None):
     ap.add_argument("--backend", default="candle", choices=["candle", "virtual", "socketcan"])
     ap.add_argument("--channel", default=None)
     ap.add_argument("--bitrate", type=int, default=500000)
+    ap.add_argument("--theme", default="system", choices=["system", "light", "dark"])
     ap.add_argument("--loop-back", dest="loop_back", action="store_true",
                     default=False,
                     help="silicon-internal loopback (no wiring); default off, "
@@ -29,8 +30,12 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv)
     app = QApplication(sys.argv)
+    from theme import apply_theme
+    apply_theme(app, args.theme)
     win = MainWindow(backend=args.backend, channel=args.channel,
                      bitrate=args.bitrate, loop_back=args.loop_back)
+    if args.theme != "system":
+        win.theme_mode = args.theme
     win.show()
     return app.exec()
 
