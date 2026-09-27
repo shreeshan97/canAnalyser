@@ -208,7 +208,8 @@ def test_failing_entry_auto_stops(win, qapp):
 
 @pytest.mark.ui
 def test_default_and_minimum_size(win):
-    assert (win.width(), win.height()) == (1280, 900)
+    assert (win.width(), win.height()) == (1280, 950)
+    assert (win.pos().x(), win.pos().y()) == (200, 100)
     assert win.minimumWidth() == 1000
     assert win.minimumHeight() == 650
 
@@ -225,7 +226,7 @@ def test_theme_repaints_bottom_tabs(win, qapp):
     light (palette alone looked fine). Assert rendered pixels."""
     from PySide6.QtGui import QColor
     from PySide6.QtWidgets import QApplication
-    win.resize(1280, 900)
+    win.resize(1280, 950)
     win.add_manual_entry()
     qapp.processEvents()
     QApplication.instance().processEvents()
@@ -318,8 +319,8 @@ def test_trace_column_pixels(win):
 
     from main_window import COL_WIDTHS
     assert COL_WIDTHS == {"Index": 40, "RX/TX": 50, "Type": 50,
-                         "Channel": 60, "Sender": 60, "ID": 70, "DLC": 40,
-                         "Timestamp": 160, "Name": 130, "Decoded": 130,
+                         "Channel": 75, "Sender": 75, "ID": 70, "DLC": 40,
+                         "Timestamp": 160, "Name": 140, "Decoded": 140,
                          "Comment": 130}
     hdr = win.table.horizontalHeader()
     data_c = COLUMNS.index("Data")
@@ -333,8 +334,8 @@ def test_trace_column_pixels(win):
 
 @pytest.mark.ui
 def test_entry_tables_share_height(win):
-    assert win.man_entries.table.height() == 154
-    assert win.dbc_entries.table.height() == 154
+    assert win.man_entries.table.height() == 204
+    assert win.dbc_entries.table.height() == 204
 
 
 @pytest.mark.ui
@@ -361,13 +362,18 @@ def test_dbc_signals_hidden_when_empty(win, qapp):
 def test_status_table_hugs_content(win, qapp):
     t = win.status_table
     qapp.processEvents()
-    assert t.width() < 700  # card, not full tab width
+    base = t.width()
+    assert base < 600  # airy card, not full tab width
     assert t.height() < 120  # header + single row, no phantom rows
-    narrow = t.width()
+    # Columns carry 50% extra air over content width (same formula as code).
+    t.resizeColumnsToContents()
+    expected = 2 * t.frameWidth() + sum(
+        int(t.columnWidth(c) * 1.5) for c in range(t.columnCount()))
+    assert base == expected
     win.rx_count, win.tx_count = 12345678, 87654321
     win._status()
     qapp.processEvents()
-    assert t.width() >= narrow  # tracks growing counters
+    assert t.width() >= base  # tracks growing counters
     assert t.horizontalScrollBar().maximum() == 0  # never clips
 
 
@@ -403,3 +409,57 @@ def test_timestamp_absolute_is_wall_clock(win):
     assert re.fullmatch(r"\d{2}:\d{2}:\d{2}\.\d{6}", got)
     assert got == datetime.datetime.fromtimestamp(1758982341.5).strftime(
         "%H:%M:%S.%f")
+
+
+@pytest.mark.ui
+def test_setup_dialog_compact_and_aligned(win, qapp):
+    from PySide6.QtCore import Qt
+
+    from main_window import SetupDialog
+    dlg = SetupDialog(win, "virtual", "test", 500000, False)
+    try:
+        assert dlg.minimumWidth() == 460
+        assert dlg.minimumHeight() == 300
+        assert dlg.lbl_devices.alignment() & Qt.AlignTop
+    finally:
+        dlg.close()
+
+
+@pytest.mark.ui
+def test_bus_buttons_sync_with_state(win, qapp):
+    assert win.btn_start.isEnabled()
+    assert not win.btn_stop.isEnabled()
+    assert win.btn_setup.isEnabled()
+    assert win.act_start.isEnabled()
+    assert not win.act_stop.isEnabled()
+    win.start()
+    _pump(qapp, 0.3)
+    assert not win.btn_start.isEnabled()
+    assert win.btn_stop.isEnabled()
+    assert not win.btn_setup.isEnabled()
+    assert not win.act_start.isEnabled()
+    assert win.act_stop.isEnabled()
+    win.stop()
+    assert win.btn_start.isEnabled()
+    assert not win.btn_stop.isEnabled()
+    assert win.btn_setup.isEnabled()
+    assert win.act_start.isEnabled()
+    assert not win.act_stop.isEnabled()
+
+
+@pytest.mark.failsafe
+def test_failed_open_keeps_start_enabled(win, qapp, monkeypatch):
+    boom = AssertionError("modal popup in test!")
+    monkeypatch.setattr(
+        "main_window.QMessageBox",
+        mock.Mock(critical=mock.Mock(side_effect=boom),
+                  information=mock.Mock(side_effect=boom),
+                  warning=mock.Mock(side_effect=boom)))
+    # Failure path must not pop modals and must leave stopped-state buttons.
+    monkeypatch.setattr("main_window.open_bus",
+                        mock.Mock(side_effect=RuntimeError("no bus")))
+    with pytest.raises(AssertionError):
+        win.start()
+    assert win.bus is None
+    assert win.btn_start.isEnabled()
+    assert not win.btn_stop.isEnabled()

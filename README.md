@@ -22,4 +22,4 @@ bash scripts/run_tests.sh tests/test_theme.py  # one file
 ```
 `tests/` covers DBC decode/encode, TX parsing, exporters, themes, the
 RX worker's echo/error filtering, and the main window (trace, filter,
-TX, per-tab entry tables, clear, autoscroll) — 40 tests, no hardware needed.
+TX, per-tab entry tables, clear, autoscroll) — 43 tests, no hardware needed.

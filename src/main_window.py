@@ -25,9 +25,9 @@ VERSION = "v0.1.0"
 COLUMNS = ["Index", "Timestamp", "Channel", "RX/TX", "Type", "ID",
            "Sender", "DLC", "Data", "Name", "Decoded", "Comment"]
 # Exact fixed widths (px @1280 window); Data stretches over the remainder.
-COL_WIDTHS = {"Index": 40, "RX/TX": 50, "Type": 50, "Channel": 60,
-              "Sender": 60, "ID": 70, "DLC": 40, "Timestamp": 160,
-              "Name": 130, "Decoded": 130, "Comment": 130}
+COL_WIDTHS = {"Index": 40, "RX/TX": 50, "Type": 50, "Channel": 75,
+              "Sender": 75, "ID": 70, "DLC": 40, "Timestamp": 160,
+              "Name": 140, "Decoded": 140, "Comment": 130}
 MAX_ROWS = 5000
 
 
@@ -35,7 +35,7 @@ class SetupDialog(QDialog):
     def __init__(self, parent, backend, channel, bitrate, loop_back):
         super().__init__(parent)
         self.setWindowTitle("Setup Interface")
-        self.setMinimumSize(460, 420)
+        self.setMinimumSize(460, 300)
         self.backend = QComboBox()
         self.backend.addItems(["candle", "virtual", "socketcan"])
         self.backend.setCurrentText(backend)
@@ -55,8 +55,10 @@ class SetupDialog(QDialog):
         info = QLabel(list_candle_devices())
         info.setWordWrap(True)
         info.setAlignment(Qt.AlignTop)
-        info.setMinimumHeight(80)
-        form.addRow("Devices", info)
+        info.setMinimumHeight(48)
+        self.lbl_devices = QLabel("Devices")
+        self.lbl_devices.setAlignment(Qt.AlignTop)
+        form.addRow(self.lbl_devices, info)
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
@@ -72,7 +74,7 @@ class EntryTable(QWidget):
 
     COLS = ["On", "Type", "ID", "Name", "Payload", "Interval (ms)"]
     MAX_ENTRIES = 16
-    TABLE_HEIGHT = 154  # entry tables share one height in both tabs
+    TABLE_HEIGHT = 204  # entry tables share one height in both tabs
 
     def __init__(self, parent, add_label, add_fn, transmit_fn, log_fn):
         super().__init__(parent)
@@ -236,7 +238,8 @@ class MainWindow(QMainWindow):
                  loop_back=False):
         super().__init__()
         self.setWindowTitle(f"canAnalyser {VERSION}")
-        self.resize(1280, 900)
+        self.resize(1280, 950)
+        self.move(200, 100)
         self.setMinimumSize(1000, 650)
         icon = os.path.join(os.path.dirname(__file__), "..", "assets", "icon.png")
         if os.path.exists(icon):
@@ -338,7 +341,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._generator_tab(), "Generator")
         self.tabs.addTab(self._status_tab(), "CAN Status")
         self.tabs.addTab(self._log_tab(), "Log")
-        self.tabs.setMaximumHeight(300)
+        self.tabs.setMaximumHeight(350)
         layout.addWidget(self.tabs)
 
         self.setStatusBar(QStatusBar())
@@ -471,12 +474,15 @@ class MainWindow(QMainWindow):
         return w
 
     def _fit_status_table(self):
-        """Pin the status table's outer rect to its content width/height."""
+        """Pin the status table's outer rect to its content width/height.
+
+        Columns get 50% extra air (width only); height stays header + row.
+        """
         t = self.status_table
         t.resizeColumnsToContents()
         w = 2 * t.frameWidth()
         for c in range(t.columnCount()):
-            w += t.columnWidth(c)
+            w += int(t.columnWidth(c) * 1.5)
         h = (t.horizontalHeader().sizeHint().height() + t.rowHeight(0)
              + 2 * t.frameWidth())
         t.setFixedSize(w, h)
@@ -572,6 +578,7 @@ class MainWindow(QMainWindow):
         a = QAction("Stop All Entries (this tab)", self)
         a.triggered.connect(self._stop_all_visible)
         gen.addAction(a)
+        self._sync_bus_buttons()  # initial stopped state incl. menu acts
 
     def _start_all_visible(self):
         if self.bus is None:
@@ -688,6 +695,17 @@ class MainWindow(QMainWindow):
     def channel_label(self):
         return f"{self.backend}-ch{self.channel}"
 
+    def _sync_bus_buttons(self):
+        """Grey out Start/Setup (and menu Start) while running, Stop (and
+        menu Stop) while stopped."""
+        running = self.bus is not None
+        self.btn_start.setEnabled(not running)
+        self.btn_stop.setEnabled(running)
+        self.btn_setup.setEnabled(not running)
+        if hasattr(self, "act_start"):
+            self.act_start.setEnabled(not running)
+            self.act_stop.setEnabled(running)
+
     def start(self):
         if self.bus is not None:
             return
@@ -707,8 +725,7 @@ class MainWindow(QMainWindow):
         self.worker.err_frame.connect(self.on_err_frame)
         self.worker.finished.connect(self.thread.quit)
         self.thread.start()
-        self.btn_start.setEnabled(False)
-        self.btn_stop.setEnabled(True)
+        self._sync_bus_buttons()
         self.log_msg(
             f"bus open: {self.backend} ch={self.channel} "
             f"{self.bitrate}bps loop_back={self.loop_back}")
@@ -731,8 +748,7 @@ class MainWindow(QMainWindow):
             except Exception:  # noqa: BLE001
                 pass
         self.bus = None
-        self.btn_start.setEnabled(True)
-        self.btn_stop.setEnabled(False)
+        self._sync_bus_buttons()
         self.log_msg("bus closed")
         self._status(prefix="stopped — ")
 

@@ -35,6 +35,8 @@ bash scripts/run.sh               # candle ch 0 @500k normal mode; add --loop-ba
 ## UI
 - Start/Stop opens/closes the bus and reader thread; Setup Interface sets
   backend, bitrate, channel, loop-back.
+- Start greys out Start/Setup (Stop blacks in) and back; same for the
+  Measurement menu. Setup refuses while running ("Stop first").
 - View Aggregated collapses same ID+direction into one row; Raw appends all.
 - Timestamps Delta = seconds since first frame with microseconds (local
   receipt clock, monotonic across midnight); Absolute = local wall-clock
@@ -44,9 +46,10 @@ bash scripts/run.sh               # candle ch 0 @500k normal mode; add --loop-ba
 - Bottom tabs: Generator with inner Manual | DBC tabs, each with its own
   transmissions table underneath (own Add/Remove/Send/Start/Stop bar,
   per-row On checkbox and editable interval; Manual TX defaults to DLC 8);
-  CAN Status is a compact card hugging its content
+  CAN Status is a compact card hugging its content with 50% column air
   (backend/channel/state/Rx/Tx/Err); Log (timestamped events).
-- Window opens 1280x900 (1000x650 minimum); trace table takes the stretch.
+- Window opens 1280x950 at (200, 100) (1000x650 minimum); trace table
+  takes the stretch; entry tables are 204px inside a 350px bottom dock.
 - Menus: File (Load DBC, Export CSV/ASC, Exit), Measurement (Start/Stop),
   View (Autoscroll, Theme System/Light/Dark, Clear), Trace, Generator,
   Help → About (v0.1.0).
