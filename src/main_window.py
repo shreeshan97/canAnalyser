@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
+from PySide6.QtWidgets import QAbstractItemView, QHeaderView
 
 from can_backend import data_to_str, list_candle_devices, open_bus, parse_tx_fields
 from dbc_manager import DbcError, DbcManager
@@ -21,7 +22,9 @@ from theme import apply_theme
 
 VERSION = "v0.1.0"
 COLUMNS = ["Index", "Timestamp", "Channel", "RX/TX", "Type", "ID",
-           "Sender", "Name", "DLC", "Data", "Decoded", "Comment"]
+           "Sender", "DLC", "Data", "Name", "Decoded", "Comment"]
+# Narrow fixed-content columns; Data stretches wide.
+NARROW_COLS = {"RX/TX", "ID", "DLC"}
 MAX_ROWS = 5000
 
 
@@ -150,14 +153,20 @@ class MainWindow(QMainWindow):
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        hdr = self.table.horizontalHeader()
+        for c, col in enumerate(COLUMNS):
+            if col == "Data":
+                hdr.setSectionResizeMode(c, QHeaderView.Stretch)
+            else:
+                hdr.setSectionResizeMode(c, QHeaderView.ResizeToContents)
         layout.addWidget(self.table, 1)
 
         self.tabs = QTabWidget()
+        self.tabs.setStyleSheet("QTabBar::tab { width: 150px; }")
         self.tabs.addTab(self._generator_tab(), "Generator")
         self.tabs.addTab(self._status_tab(), "CAN Status")
         self.tabs.addTab(self._log_tab(), "Log")
-        self.tabs.setMaximumHeight(340)
+        self.tabs.setMaximumHeight(300)
         layout.addWidget(self.tabs)
 
         self.setStatusBar(QStatusBar())
@@ -168,6 +177,7 @@ class MainWindow(QMainWindow):
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
         self.gen_tabs = QTabWidget()
+        self.gen_tabs.setStyleSheet("QTabBar::tab { width: 120px; }")
         self.gen_tabs.addTab(self._manual_group(), "Manual")
         self.gen_tabs.addTab(self._dbc_group(), "DBC")
         lay.addWidget(self.gen_tabs)
@@ -177,11 +187,15 @@ class MainWindow(QMainWindow):
     def _entries_group(self):
         box = QGroupBox("Active Transmissions (multi-message cyclic)")
         lay = QVBoxLayout(box)
+        self.lbl_dbc_hint = QLabel("Tip: File → Load DBC to enable DBC messages.")
+        lay.addWidget(self.lbl_dbc_hint)
         self.entry_table = QTableWidget(0, 6)
         self.entry_table.setHorizontalHeaderLabels(
             ["On", "Type", "ID", "Name", "Payload", "Interval (ms)"])
         self.entry_table.setEditTriggers(
             QTableWidget.DoubleClicked | QTableWidget.EditKeyPressed)
+        self.entry_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.entry_table.setFixedHeight(122)
         self.entry_table.verticalHeader().setVisible(False)
         self.entry_table.horizontalHeader().setStretchLastSection(True)
         self.entry_table.itemChanged.connect(self._entry_item_changed)
@@ -207,8 +221,9 @@ class MainWindow(QMainWindow):
         return box
 
     def _manual_group(self):
-        box = QGroupBox("Manual (raw)")
-        lay = QHBoxLayout(box)
+        w = QWidget()
+        lay = QHBoxLayout(w)
+        lay.setContentsMargins(4, 4, 4, 4)
         lay.addWidget(QLabel("ID (Hex):"))
         self.tx_id = QLineEdit("123")
         self.tx_id.setMaximumWidth(80)
@@ -236,11 +251,15 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.btn_send)
         lay.addWidget(self.btn_cyclic)
         lay.addWidget(self.btn_cyclic_stop)
-        return box
+        self.btn_add_dbc_here = QPushButton("Add DBC Entry")
+        self.btn_add_dbc_here.clicked.connect(self.add_dbc_entry)
+        lay.addWidget(self.btn_add_dbc_here)
+        return w
 
     def _dbc_group(self):
-        box = QGroupBox("DBC")
-        lay = QVBoxLayout(box)
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(4, 4, 4, 4)
         top = QHBoxLayout()
         self.dbc_msg = QComboBox()
         self.dbc_msg.setEnabled(False)
@@ -264,12 +283,14 @@ class MainWindow(QMainWindow):
         top.addWidget(self.btn_dbc_send)
         top.addWidget(self.btn_dbc_cyclic)
         top.addWidget(self.btn_dbc_cyclic_stop)
+        self.btn_add_man_here = QPushButton("Add Manual Entry")
+        self.btn_add_man_here.clicked.connect(self.add_manual_entry)
+        top.addWidget(self.btn_add_man_here)
         lay.addLayout(top)
         self.dbc_signals = QWidget()
         self.dbc_sig_layout = QFormLayout(self.dbc_signals)
-        self.dbc_sig_layout.addRow(QLabel("Load a DBC file to edit signals."))
         lay.addWidget(self.dbc_signals)
-        return box
+        return w
 
     def _status_tab(self):
         self.status_table = QTableWidget(1, 6)
@@ -450,6 +471,7 @@ class MainWindow(QMainWindow):
         self.dbc_msg.addItems(names)
         self.dbc_msg.setEnabled(bool(names))
         self.lbl_dbc.setText(f"{os.path.basename(path)} ({n} msgs)")
+        self.lbl_dbc_hint.setVisible(False)
         self.log_msg(f"DBC loaded: {path} ({n} messages)")
         self._rebuild_signal_editors(self.dbc_msg.currentText())
 
@@ -653,8 +675,8 @@ class MainWindow(QMainWindow):
                 arb = int(id_txt.replace("0x", ""), 16)
             except ValueError:
                 arb = -1
-            probe = {"arb_id": arb, "id": id_txt, "data": cells[9],
-                     "name": cells[7], "decoded": cells[10], "sender": cells[6]}
+            probe = {"arb_id": arb, "id": id_txt, "data": cells[8],
+                     "name": cells[9], "decoded": cells[10], "sender": cells[6]}
             self.table.setRowHidden(row, not self._matches_rec(probe))
 
     def _rebuild_view(self):

@@ -1,10 +1,10 @@
 # Table / TX format
 
 ## RX columns
-`Index | Timestamp | Channel | RX/TX | Type | ID | Sender | Name | DLC | Data | Decoded | Comment`
+`Index | Timestamp | Channel | RX/TX | Type | ID | Sender | DLC | Data | Name | Decoded | Comment`
 - Type: `STD.` (11-bit) or `EXT.` (29-bit).
 - ID: `0x123` / `0x12345678`.
-- Data: space-separated hex bytes, e.g. `00 00 00 00 00 00`, max 8 (classic CAN).
+- Data is the wide stretch column; RX/TX, ID, DLC stay compact.
 - Sender/Name/Decoded come from the loaded DBC (blank without one);
   Decoded is `SIGNAL=value, ...` in physical units. Comment is reserved.
 

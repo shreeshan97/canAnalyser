@@ -1,3 +1,4 @@
+import pytest
 """Unit tests: CSV and ASC exporters."""
 from exporter import export_asc, export_csv
 
@@ -17,6 +18,7 @@ COLS = ["Index", "Timestamp", "Channel", "RX/TX", "Type", "ID", "Sender",
         "Name", "DLC", "Data", "Decoded", "Comment"]
 
 
+@pytest.mark.exporter
 def test_csv_headers_and_rows(tmp_path):
     p = str(tmp_path / "t.csv")
     assert export_csv(p, COLS, [_rec(), _rec(index=2)]) == 2
@@ -26,12 +28,14 @@ def test_csv_headers_and_rows(tmp_path):
     assert len(lines) == 3
 
 
+@pytest.mark.exporter
 def test_csv_empty(tmp_path):
     p = str(tmp_path / "e.csv")
     assert export_csv(p, COLS, []) == 0
     assert open(p).read().splitlines() == [",".join(COLS)]
 
 
+@pytest.mark.exporter
 def test_asc_format(tmp_path):
     p = str(tmp_path / "t.asc")
     recs = [_rec(), _rec(direction="TX", rx_tx="TX"),

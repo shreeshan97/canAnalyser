@@ -1,3 +1,4 @@
+import pytest
 """Unit tests: RxWorker drops firmware TX-echoes and error frames."""
 import can
 
@@ -23,6 +24,7 @@ def _msg(**kw):
     return can.Message(**d)
 
 
+@pytest.mark.worker
 def test_worker_forwards_only_real_frames():
     # Leading None ends the worker's startup drain; the rest hits the main loop.
     bus = FakeBus([None,
@@ -51,6 +53,7 @@ def test_worker_forwards_only_real_frames():
     assert sum(err_counts) == 1
 
 
+@pytest.mark.worker
 def test_worker_batches_error_storm():
     # 50 error frames must arrive as a few batched emissions, not 50 signals.
     bus = FakeBus([None] + [_msg(is_error_frame=True)] * 50)

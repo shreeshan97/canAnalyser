@@ -26,6 +26,7 @@ def _pump(qapp, secs=0.6):
         time.sleep(0.02)
 
 
+@pytest.mark.trace
 def test_start_stop_and_status(win, qapp):
     assert win.bus is None
     win.start()
@@ -36,6 +37,7 @@ def test_start_stop_and_status(win, qapp):
     assert win.status_table.item(0, 2).text() == "stopped"
 
 
+@pytest.mark.trace
 def test_rx_row_and_counts(win, qapp):
     win.view.setCurrentText("Raw")
     win.start()
@@ -49,11 +51,12 @@ def test_rx_row_and_counts(win, qapp):
         assert win.rx_count == 1
         assert win.table.rowCount() == 1
         assert win.table.item(0, 5).text() == "0x123"
-        assert win.table.item(0, 9).text() == "01 02"
+        assert win.table.item(0, 8).text() == "01 02"
     finally:
         peer.shutdown()
 
 
+@pytest.mark.decode
 def test_dbc_decode_columns(win, qapp):
     assert win.dbc.load(DBC_PATH) == 2
     win.view.setCurrentText("Raw")
@@ -76,6 +79,7 @@ def test_dbc_decode_columns(win, qapp):
         peer.shutdown()
 
 
+@pytest.mark.tx
 def test_manual_tx_appends_tx_row(win, qapp):
     win.start()
     _pump(qapp, 0.3)
@@ -100,6 +104,7 @@ def test_manual_tx_appends_tx_row(win, qapp):
         peer.shutdown()
 
 
+@pytest.mark.trace
 def test_filter_hides_and_restores(win, qapp):
     win.view.setCurrentText("Raw")
     win.start()
@@ -119,6 +124,7 @@ def test_filter_hides_and_restores(win, qapp):
         peer.shutdown()
 
 
+@pytest.mark.trace
 def test_clear_resets(win, qapp):
     win.view.setCurrentText("Raw")
     win.start()
@@ -137,6 +143,7 @@ def test_clear_resets(win, qapp):
         peer.shutdown()
 
 
+@pytest.mark.ui
 def test_autoscroll_toggle(win):
     assert win.autoscroll
     win.btn_autoscroll.setChecked(False)
@@ -146,6 +153,7 @@ def test_autoscroll_toggle(win):
     assert win.autoscroll
 
 
+@pytest.mark.trace
 def test_log_records_bus_open(win, qapp):
     win.start()
     assert any("bus open" in win.log_list.item(i).text()
@@ -162,6 +170,7 @@ class FailingBus:
         pass
 
 
+@pytest.mark.failsafe
 def test_failing_cyclic_auto_stops_without_modals(win, qapp, monkeypatch):
     # If a modal ever appears the test would hang; fail loudly instead.
     boom = AssertionError("modal popup during cyclic!")
@@ -182,6 +191,7 @@ def test_failing_cyclic_auto_stops_without_modals(win, qapp, monkeypatch):
                for i in range(win.log_list.count()))
 
 
+@pytest.mark.failsafe
 def test_failing_entry_auto_stops(win, qapp):
     win.bus = FailingBus()
     win.tx_id.setText("100")
@@ -195,17 +205,20 @@ def test_failing_entry_auto_stops(win, qapp):
     assert entry.get("fails", 0) >= 3
 
 
+@pytest.mark.ui
 def test_default_and_minimum_size(win):
     assert (win.width(), win.height()) == (1280, 800)
     assert win.minimumWidth() == 1000
     assert win.minimumHeight() == 650
 
 
+@pytest.mark.ui
 def test_generator_inner_tabs(win):
     assert [win.gen_tabs.tabText(i) for i in range(win.gen_tabs.count())] == [
         "Manual", "DBC"]
 
 
+@pytest.mark.ui
 def test_theme_roundtrip_restores_light(win, qapp):
     from PySide6.QtGui import QPalette
     from PySide6.QtWidgets import QApplication
@@ -217,6 +230,7 @@ def test_theme_roundtrip_restores_light(win, qapp):
     assert win.theme_mode == "light"
 
 
+@pytest.mark.entries
 def test_add_manual_entry_and_send(win, qapp):
     win.start()
     _pump(qapp, 0.3)
@@ -234,6 +248,7 @@ def test_add_manual_entry_and_send(win, qapp):
     assert win.tx_count == 1
 
 
+@pytest.mark.entries
 def test_add_dbc_entry_and_cyclic(win, qapp):
     assert win.dbc.load(DBC_PATH) == 2
     win.dbc_msg.clear()
@@ -265,6 +280,7 @@ def test_add_dbc_entry_and_cyclic(win, qapp):
     assert win.entry_table.rowCount() == 0
 
 
+@pytest.mark.entries
 def test_entry_interval_validation(win):
     win.tx_id.setText("100")
     win.tx_dlc.setValue(1)

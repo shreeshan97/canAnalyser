@@ -14,8 +14,12 @@ See `doc/usage.md` for hardware/udev notes, `doc/protocol.md` for table/filter f
 
 ## Tests
 ```bash
-bash scripts/run_tests.sh   # pytest, offscreen Qt, virtual bus + fixture DBC
+bash scripts/run_tests.sh            # everything (41 tests)
+bash scripts/run_tests.sh -m entries # one feature: dbc backend exporter
+                                     # theme worker trace decode tx
+                                     # entries failsafe ui
+bash scripts/run_tests.sh tests/test_theme.py  # one file
 ```
 `tests/` covers DBC decode/encode, TX parsing, exporters, themes, the
 RX worker's echo/error filtering, and the main window (trace, filter,
-TX, entry table, clear, autoscroll) — 39 tests, no hardware needed.
+TX, entry table, clear, autoscroll) — 41 tests, no hardware needed.
