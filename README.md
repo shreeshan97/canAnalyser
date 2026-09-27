@@ -1,6 +1,6 @@
 # canAnalyser
 
-PySide6 CAN receiver + simple TX generator, styled after CANGaroo.
+PySide6 CAN bus receiver + multi-message TX generator.
 Backend: `python-can` `candle` (FYSETC UCAN, `1d50:606f`) with virtual fallback.
 
 ## Quickstart
@@ -18,4 +18,4 @@ bash scripts/run_tests.sh   # pytest, offscreen Qt, virtual bus + fixture DBC
 ```
 `tests/` covers DBC decode/encode, TX parsing, exporters, themes, the
 RX worker's echo/error filtering, and the main window (trace, filter,
-TX, clear, autoscroll) — 30 tests, no hardware needed.
+TX, entry table, clear, autoscroll) — 36 tests, no hardware needed.

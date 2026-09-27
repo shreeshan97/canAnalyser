@@ -1,5 +1,6 @@
 """Entry point: python src/main.py [--virtual] [--bitrate N] [--channel CH]."""
 import argparse
+import os
 import sys
 
 from PySide6.QtWidgets import QApplication
@@ -29,6 +30,10 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
+    # Keep the desktop platform theme (e.g. Mint qt5ct dark) from overriding
+    # our Fusion palette so Light/Dark selection actually takes effect.
+    QApplication.setDesktopSettingsAware(False)
+    os.environ.pop("QT_QPA_PLATFORMTHEME", None)
     app = QApplication(sys.argv)
     from theme import apply_theme
     apply_theme(app, args.theme)

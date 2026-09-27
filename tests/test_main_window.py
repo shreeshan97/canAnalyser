@@ -3,6 +3,7 @@ import time
 
 import pytest
 import can
+from PySide6.QtCore import Qt
 
 from main_window import COLUMNS, MainWindow
 from tests.conftest import DBC_PATH
@@ -148,3 +149,86 @@ def test_log_records_bus_open(win, qapp):
     win.start()
     assert any("bus open" in win.log_list.item(i).text()
                for i in range(win.log_list.count()))
+
+
+def test_default_and_minimum_size(win):
+    assert (win.width(), win.height()) == (1280, 800)
+    assert win.minimumWidth() == 1000
+    assert win.minimumHeight() == 650
+
+
+def test_generator_inner_tabs(win):
+    assert [win.gen_tabs.tabText(i) for i in range(win.gen_tabs.count())] == [
+        "Manual", "DBC"]
+
+
+def test_theme_roundtrip_restores_light(win, qapp):
+    from PySide6.QtGui import QPalette
+    from PySide6.QtWidgets import QApplication
+    win.set_theme("dark")
+    dark = QApplication.instance().palette().color(QPalette.Window).name()
+    win.set_theme("light")
+    light = QApplication.instance().palette().color(QPalette.Window).name()
+    assert dark != light
+    assert win.theme_mode == "light"
+
+
+def test_add_manual_entry_and_send(win, qapp):
+    win.start()
+    _pump(qapp, 0.3)
+    win.tx_id.setText("100")
+    win.tx_dlc.setValue(1)
+    win.tx_data.setText("AB")
+    win.tx_interval.setValue(100)
+    win.add_manual_entry()
+    assert len(win.entries) == 1
+    assert win.entry_table.rowCount() == 1
+    assert win.entry_table.item(0, 1).text() == "Manual"
+    assert win.entry_table.item(0, 2).text() == "0x100"
+    win.entry_table.setCurrentCell(0, 0)
+    win.send_selected_entry()
+    assert win.tx_count == 1
+
+
+def test_add_dbc_entry_and_cyclic(win, qapp):
+    assert win.dbc.load(DBC_PATH) == 2
+    win.dbc_msg.clear()
+    win.dbc_msg.addItems(win.dbc.message_names())
+    win.dbc_msg.setEnabled(True)
+    win._rebuild_signal_editors("ControlCmd")
+    win.start()
+    _pump(qapp, 0.3)
+    win.dbc_msg.setCurrentText("ControlCmd")
+    win.sig_editors["GearReq"].setValue(2)
+    win.dbc_interval.setValue(50)
+    win.add_dbc_entry()
+    assert len(win.entries) == 1
+    assert win.entry_table.item(0, 1).text() == "DBC"
+    assert "GearReq" in win.entry_table.item(0, 4).text()
+    win.start_all_entries()
+    _pump(qapp, 0.4)
+    tx_after_start = win.tx_count
+    assert tx_after_start >= 2
+    # Uncheck On -> timer stops, count freezes
+    win.entry_table.item(0, 0).setCheckState(Qt.Unchecked)
+    frozen = win.tx_count
+    _pump(qapp, 0.3)
+    assert win.tx_count == frozen
+    win.stop_all_entries()
+    win.entry_table.setCurrentCell(0, 0)
+    win.remove_selected_entry()
+    assert len(win.entries) == 0
+    assert win.entry_table.rowCount() == 0
+
+
+def test_entry_interval_validation(win):
+    win.tx_id.setText("100")
+    win.tx_dlc.setValue(1)
+    win.tx_data.setText("00")
+    win.add_manual_entry()
+    assert win.entries[0]["interval"] == 100
+    win.entry_table.item(0, 5).setText("bogus")
+    assert win.entry_table.item(0, 5).text() == "100"
+    assert win.entries[0]["interval"] == 100
+    win.entry_table.item(0, 5).setText("250")
+    assert win.entries[0]["interval"] == 250

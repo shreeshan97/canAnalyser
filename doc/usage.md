@@ -40,7 +40,9 @@ bash scripts/run.sh               # candle ch 0 @500k normal mode; add --loop-ba
   mix TX echoes and device-clocked RX); Absolute = bus timestamp.
 - Filter matches ID hex, data hex, or DBC name/signal text.
 - Autoscroll toggle (toolbar + View menu, default ON).
-- Bottom tabs: Generator (Manual raw on top, DBC below), CAN Status
+- Bottom tabs: Generator (inner Manual | DBC tabs + Active Transmissions
+  multi-message table: Add Manual/DBC, per-row On checkbox and interval,
+  Send Selected Once, Start/Stop All), CAN Status
   (backend/channel/state/Rx/Tx/Err), Log (timestamped events).
 - Menus: File (Load DBC, Export CSV/ASC, Exit), Measurement (Start/Stop),
   View (Autoscroll, Theme System/Light/Dark, Clear), Trace, Generator,

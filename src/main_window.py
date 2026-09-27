@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QCheckBox, QDoubleSpinBox,
     QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QMainWindow, QMessageBox, QPushButton, QSpinBox,
-    QSplitter, QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
+    QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
 
@@ -63,7 +63,8 @@ class MainWindow(QMainWindow):
                  loop_back=False):
         super().__init__()
         self.setWindowTitle(f"canAnalyser {VERSION}")
-        self.resize(1150, 750)
+        self.resize(1280, 800)
+        self.setMinimumSize(1000, 650)
         icon = os.path.join(os.path.dirname(__file__), "..", "assets", "icon.png")
         if os.path.exists(icon):
             self.setWindowIcon(QIcon(icon))
@@ -85,6 +86,8 @@ class MainWindow(QMainWindow):
         self.theme_mode = "system"
         self.dbc = DbcManager()
         self.sig_editors = {}
+        self.entries: list[dict] = []
+        self._updating_entries = False
         self._last_decode_failed = False
         self._last_errstorm = 0.0
         self._build_ui()
@@ -153,21 +156,54 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._generator_tab(), "Generator")
         self.tabs.addTab(self._status_tab(), "CAN Status")
         self.tabs.addTab(self._log_tab(), "Log")
-        self.tabs.setMaximumHeight(260)
+        self.tabs.setMaximumHeight(340)
         layout.addWidget(self.tabs)
 
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage("idle — press Start")
 
     def _generator_tab(self):
-        split = QSplitter(Qt.Vertical)
-        split.addWidget(self._manual_group())
-        split.addWidget(self._dbc_group())
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(split)
+        self.gen_tabs = QTabWidget()
+        self.gen_tabs.addTab(self._manual_group(), "Manual")
+        self.gen_tabs.addTab(self._dbc_group(), "DBC")
+        lay.addWidget(self.gen_tabs)
+        lay.addWidget(self._entries_group())
         return w
+
+    def _entries_group(self):
+        box = QGroupBox("Active Transmissions (multi-message cyclic)")
+        lay = QVBoxLayout(box)
+        self.entry_table = QTableWidget(0, 6)
+        self.entry_table.setHorizontalHeaderLabels(
+            ["On", "Type", "ID", "Name", "Payload", "Interval (ms)"])
+        self.entry_table.setEditTriggers(
+            QTableWidget.DoubleClicked | QTableWidget.EditKeyPressed)
+        self.entry_table.verticalHeader().setVisible(False)
+        self.entry_table.horizontalHeader().setStretchLastSection(True)
+        self.entry_table.itemChanged.connect(self._entry_item_changed)
+        lay.addWidget(self.entry_table)
+        btns = QHBoxLayout()
+        self.btn_add_man = QPushButton("Add Manual")
+        self.btn_add_dbc = QPushButton("Add DBC")
+        self.btn_entry_remove = QPushButton("Remove")
+        self.btn_entry_send = QPushButton("Send Selected Once")
+        self.btn_entry_start = QPushButton("Start All")
+        self.btn_entry_stop = QPushButton("Stop All")
+        self.btn_add_man.clicked.connect(self.add_manual_entry)
+        self.btn_add_dbc.clicked.connect(self.add_dbc_entry)
+        self.btn_entry_remove.clicked.connect(self.remove_selected_entry)
+        self.btn_entry_send.clicked.connect(self.send_selected_entry)
+        self.btn_entry_start.clicked.connect(self.start_all_entries)
+        self.btn_entry_stop.clicked.connect(self.stop_all_entries)
+        for b in (self.btn_add_man, self.btn_add_dbc, self.btn_entry_remove,
+                  self.btn_entry_send, self.btn_entry_start, self.btn_entry_stop):
+            btns.addWidget(b)
+        btns.addStretch(1)
+        lay.addLayout(btns)
+        return box
 
     def _manual_group(self):
         box = QGroupBox("Manual (raw)")
@@ -321,6 +357,22 @@ class MainWindow(QMainWindow):
         self.act_dbc_cyc = QAction("DBC: Start Cyclic", self)
         self.act_dbc_cyc.triggered.connect(self.toggle_dbc_cyclic)
         gen.addAction(self.act_dbc_cyc)
+        gen.addSeparator()
+        a = QAction("Add Manual Entry", self)
+        a.triggered.connect(self.add_manual_entry)
+        gen.addAction(a)
+        a = QAction("Add DBC Entry", self)
+        a.triggered.connect(self.add_dbc_entry)
+        gen.addAction(a)
+        a = QAction("Send Selected Entry Once", self)
+        a.triggered.connect(self.send_selected_entry)
+        gen.addAction(a)
+        a = QAction("Start All Entries", self)
+        a.triggered.connect(self.start_all_entries)
+        gen.addAction(a)
+        a = QAction("Stop All Entries", self)
+        a.triggered.connect(self.stop_all_entries)
+        gen.addAction(a)
 
         help_m = m.addMenu("&Help")
         a = QAction("About", self)
@@ -351,7 +403,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self, "About canAnalyser",
             f"<b>canAnalyser {VERSION}</b><br>"
-            "CANGaroo-style CAN receiver + TX generator.<br><br>"
+            "CAN bus receiver + multi-message TX generator.<br><br>"
             f"PySide {pyside_v}, Qt {qVersion()}<br>"
             "Backend: python-can (candle FYSETC UCAN / virtual / socketcan), "
             "DBC via cantools.<br>"
@@ -438,6 +490,7 @@ class MainWindow(QMainWindow):
     def stop(self):
         self.stop_cyclic()
         self.dbc_stop_cyclic()
+        self.stop_all_entries()
         if self.worker:
             self.worker.stop()
         if self.thread:
@@ -693,6 +746,143 @@ class MainWindow(QMainWindow):
             self.dbc_stop_cyclic()
         else:
             self.dbc_start_cyclic()
+
+    # ---- multi-message entry table ----
+    MAX_ENTRIES = 16
+
+    def _selected_entry(self):
+        row = self.entry_table.currentRow()
+        if 0 <= row < len(self.entries):
+            return row, self.entries[row]
+        QMessageBox.information(self, "Entries", "Select a table row first.")
+        return None, None
+
+    def add_manual_entry(self):
+        if len(self.entries) >= self.MAX_ENTRIES:
+            QMessageBox.information(self, "Entries", "Entry table is full (16).")
+            return
+        msg = self._current_tx()
+        if msg is None:
+            return
+        self._add_entry("Manual", "", msg, self.tx_interval.value())
+
+    def add_dbc_entry(self):
+        if len(self.entries) >= self.MAX_ENTRIES:
+            QMessageBox.information(self, "Entries", "Entry table is full (16).")
+            return
+        name = self.dbc_msg.currentText()
+        if not name:
+            QMessageBox.information(self, "DBC", "Load a DBC file first.")
+            return
+        msg = self._current_dbc_tx()
+        if msg is None:
+            return
+        summary = DbcManager.fmt_signals(
+            {sn: box.value() for sn, box in self.sig_editors.items()})
+        self._add_entry("DBC", name, msg, self.dbc_interval.value(),
+                        payload=summary)
+
+    def _add_entry(self, kind, name, msg, interval, payload=""):
+        entry = {"kind": kind, "name": name, "msg": msg,
+                 "interval": interval, "enabled": True,
+                 "timer": None, "payload": payload or data_to_str(msg.data)}
+        self.entries.append(entry)
+        row = self.entry_table.rowCount()
+        self._updating_entries = True
+        try:
+            self.entry_table.insertRow(row)
+            on = QTableWidgetItem()
+            on.setFlags(on.flags() | Qt.ItemIsUserCheckable)
+            on.setCheckState(Qt.Checked)
+            self.entry_table.setItem(row, 0, on)
+            self.entry_table.setItem(row, 1, QTableWidgetItem(kind))
+            self.entry_table.setItem(row, 2, QTableWidgetItem(f"0x{msg.arbitration_id:X}"))
+            self.entry_table.setItem(row, 3, QTableWidgetItem(name))
+            self.entry_table.setItem(row, 4, QTableWidgetItem(entry["payload"]))
+            self.entry_table.setItem(row, 5, QTableWidgetItem(str(interval)))
+        finally:
+            self._updating_entries = False
+        self.log_msg(f"entry added: {kind} {name or hex(msg.arbitration_id)} "
+                     f"@{interval}ms")
+
+    def _entry_item_changed(self, item):
+        if getattr(self, "_updating_entries", False):
+            return
+        row = item.row()
+        if not 0 <= row < len(self.entries):
+            return
+        entry = self.entries[row]
+        if item.column() == 0:
+            entry["enabled"] = item.checkState() == Qt.Checked
+            if entry["enabled"]:
+                self._entry_timer_on(entry)
+            else:
+                self._entry_timer_off(entry)
+        elif item.column() == 5:
+            try:
+                iv = int(item.text())
+                assert 10 <= iv <= 10000
+            except (ValueError, AssertionError):
+                self._updating_entries = True
+                try:
+                    item.setText(str(entry["interval"]))
+                finally:
+                    self._updating_entries = False
+                return
+            entry["interval"] = iv
+            if entry["timer"] is not None and entry["timer"].isActive():
+                entry["timer"].start(iv)
+
+    def _entry_timer_on(self, entry):
+        if self.bus is None or not entry["enabled"]:
+            return
+        if entry["timer"] is None:
+            t = QTimer(self)
+            t.timeout.connect(lambda e=entry: self._send_entry(e))
+            entry["timer"] = t
+        entry["timer"].start(entry["interval"])
+
+    def _entry_timer_off(self, entry):
+        if entry["timer"] is not None and entry["timer"].isActive():
+            entry["timer"].stop()
+
+    def _send_entry(self, entry):
+        if self.bus is None or not entry["enabled"]:
+            return
+        self._transmit(entry["msg"])
+
+    def remove_selected_entry(self):
+        row, entry = self._selected_entry()
+        if entry is None:
+            return
+        self._entry_timer_off(entry)
+        del self.entries[row]
+        self._updating_entries = True
+        try:
+            self.entry_table.removeRow(row)
+        finally:
+            self._updating_entries = False
+        self.log_msg("entry removed")
+
+    def send_selected_entry(self):
+        _, entry = self._selected_entry()
+        if entry is not None:
+            self._send_entry(entry)
+
+    def start_all_entries(self):
+        if self.bus is None:
+            QMessageBox.information(self, "TX", "Press Start first.")
+            return
+        n = 0
+        for e in self.entries:
+            if e["enabled"]:
+                self._entry_timer_on(e)
+                n += 1
+        self.log_msg(f"cyclic started for {n} entries")
+
+    def stop_all_entries(self):
+        for e in getattr(self, "entries", []):
+            self._entry_timer_off(e)
 
     # ---- export ----
     def _filtered_records(self):
