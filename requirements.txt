@@ -1,0 +1,3 @@
+PySide6
+python-can
+python-can-candle
