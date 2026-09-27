@@ -230,6 +230,31 @@ def test_theme_roundtrip_restores_light(win, qapp):
     assert win.theme_mode == "light"
 
 
+@pytest.mark.ui
+def test_theme_repaints_bottom_tabs(win, qapp):
+    """Stylesheet tab bars once kept rendering dark after switching to
+    light (palette alone looked fine). Assert rendered pixels."""
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QApplication
+    win.resize(1280, 800)
+    win.add_manual_entry()
+    qapp.processEvents()
+    QApplication.instance().processEvents()
+    from theme import apply_theme
+    apply_theme(QApplication.instance(), "dark")
+    qapp.processEvents()
+    apply_theme(QApplication.instance(), "light")
+    qapp.processEvents()
+
+    def brightness(x, y):
+        c = QColor(win.grab().toImage().pixel(x, y))
+        return (c.red() + c.green() + c.blue()) // 3
+
+    assert brightness(640, 200) > 128  # trace area
+    assert brightness(640, 620) > 128  # generator tabs (was stuck dark)
+    assert brightness(640, 720) > 128  # entry table (was stuck dark)
+
+
 @pytest.mark.entries
 def test_add_manual_entry_and_send(win, qapp):
     win.start()

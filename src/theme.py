@@ -74,4 +74,15 @@ def apply_theme(app: QApplication, mode: str) -> str:
         app.setPalette(dark)
     else:
         app.setPalette(app.style().standardPalette())
+    # Widgets carrying a stylesheet (our constant-width tab bars) do not
+    # reliably repaint on a bare palette swap: a subtree can keep rendering
+    # the old theme (seen: bottom tabs stuck dark in light mode). Force a
+    # full unpolish/polish pass so every widget picks up the new palette.
+    for widget in app.allWidgets():
+        try:
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+            widget.update()
+        except (RuntimeError, AttributeError):
+            continue
     return effective
