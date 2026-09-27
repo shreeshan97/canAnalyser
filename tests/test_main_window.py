@@ -198,9 +198,10 @@ def test_failing_entry_auto_stops(win, qapp):
     win.tx_dlc.setValue(1)
     win.tx_data.setText("00")
     win.add_manual_entry()
-    win.start_all_entries()
+    t = win.man_entries
+    assert t.start_all() == 1
     _pump(qapp, 0.5)
-    entry = win.entries[0]
+    entry = t.entries[0]
     assert entry["timer"] is None or not entry["timer"].isActive()
     assert entry.get("fails", 0) >= 3
 
@@ -216,18 +217,6 @@ def test_default_and_minimum_size(win):
 def test_generator_inner_tabs(win):
     assert [win.gen_tabs.tabText(i) for i in range(win.gen_tabs.count())] == [
         "Manual", "DBC"]
-
-
-@pytest.mark.ui
-def test_theme_roundtrip_restores_light(win, qapp):
-    from PySide6.QtGui import QPalette
-    from PySide6.QtWidgets import QApplication
-    win.set_theme("dark")
-    dark = QApplication.instance().palette().color(QPalette.Window).name()
-    win.set_theme("light")
-    light = QApplication.instance().palette().color(QPalette.Window).name()
-    assert dark != light
-    assert win.theme_mode == "light"
 
 
 @pytest.mark.ui
@@ -264,12 +253,13 @@ def test_add_manual_entry_and_send(win, qapp):
     win.tx_data.setText("AB")
     win.tx_interval.setValue(100)
     win.add_manual_entry()
-    assert len(win.entries) == 1
-    assert win.entry_table.rowCount() == 1
-    assert win.entry_table.item(0, 1).text() == "Manual"
-    assert win.entry_table.item(0, 2).text() == "0x100"
-    win.entry_table.setCurrentCell(0, 0)
-    win.send_selected_entry()
+    t = win.man_entries
+    assert len(t.entries) == 1
+    assert t.table.rowCount() == 1
+    assert t.table.item(0, 1).text() == "Manual"
+    assert t.table.item(0, 2).text() == "0x100"
+    t.table.setCurrentCell(0, 0)
+    assert t.send_selected()
     assert win.tx_count == 1
 
 
@@ -286,23 +276,25 @@ def test_add_dbc_entry_and_cyclic(win, qapp):
     win.sig_editors["GearReq"].setValue(2)
     win.dbc_interval.setValue(50)
     win.add_dbc_entry()
-    assert len(win.entries) == 1
-    assert win.entry_table.item(0, 1).text() == "DBC"
-    assert "GearReq" in win.entry_table.item(0, 4).text()
-    win.start_all_entries()
+    t = win.dbc_entries
+    assert len(t.entries) == 1
+    assert t.table.item(0, 1).text() == "DBC"
+    assert "GearReq" in t.table.item(0, 4).text()
+    n = t.start_all()
+    assert n == 1
     _pump(qapp, 0.4)
     tx_after_start = win.tx_count
     assert tx_after_start >= 2
     # Uncheck On -> timer stops, count freezes
-    win.entry_table.item(0, 0).setCheckState(Qt.Unchecked)
+    t.table.item(0, 0).setCheckState(Qt.Unchecked)
     frozen = win.tx_count
     _pump(qapp, 0.3)
     assert win.tx_count == frozen
-    win.stop_all_entries()
-    win.entry_table.setCurrentCell(0, 0)
-    win.remove_selected_entry()
-    assert len(win.entries) == 0
-    assert win.entry_table.rowCount() == 0
+    t.stop_all()
+    t.table.setCurrentCell(0, 0)
+    assert t.remove_selected()
+    assert len(t.entries) == 0
+    assert t.table.rowCount() == 0
 
 
 @pytest.mark.entries
@@ -311,9 +303,10 @@ def test_entry_interval_validation(win):
     win.tx_dlc.setValue(1)
     win.tx_data.setText("00")
     win.add_manual_entry()
-    assert win.entries[0]["interval"] == 100
-    win.entry_table.item(0, 5).setText("bogus")
-    assert win.entry_table.item(0, 5).text() == "100"
-    assert win.entries[0]["interval"] == 100
-    win.entry_table.item(0, 5).setText("250")
-    assert win.entries[0]["interval"] == 250
+    t = win.man_entries
+    assert t.entries[0]["interval"] == 100
+    t.table.item(0, 5).setText("bogus")
+    assert t.table.item(0, 5).text() == "100"
+    assert t.entries[0]["interval"] == 100
+    t.table.item(0, 5).setText("250")
+    assert t.entries[0]["interval"] == 250

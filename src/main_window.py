@@ -23,8 +23,10 @@ from theme import apply_theme
 VERSION = "v0.1.0"
 COLUMNS = ["Index", "Timestamp", "Channel", "RX/TX", "Type", "ID",
            "Sender", "DLC", "Data", "Name", "Decoded", "Comment"]
-# Narrow fixed-content columns; Data stretches wide.
-NARROW_COLS = {"RX/TX", "ID", "DLC"}
+# Exact fixed widths (px @1280 window); Data stretches over the remainder.
+COL_WIDTHS = {"Index": 40, "RX/TX": 40, "Type": 40, "Channel": 60,
+              "Sender": 60, "ID": 70, "DLC": 40, "Timestamp": 130,
+              "Name": 130, "Decoded": 130, "Comment": 130}
 MAX_ROWS = 5000
 
 
@@ -32,6 +34,7 @@ class SetupDialog(QDialog):
     def __init__(self, parent, backend, channel, bitrate, loop_back):
         super().__init__(parent)
         self.setWindowTitle("Setup Interface")
+        self.setMinimumSize(460, 420)
         self.backend = QComboBox()
         self.backend.addItems(["candle", "virtual", "socketcan"])
         self.backend.setCurrentText(backend)
@@ -50,6 +53,8 @@ class SetupDialog(QDialog):
         form.addRow(self.loop_back)
         info = QLabel(list_candle_devices())
         info.setWordWrap(True)
+        info.setAlignment(Qt.AlignTop)
+        info.setMinimumHeight(80)
         form.addRow("Devices", info)
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(self.accept)
@@ -59,6 +64,169 @@ class SetupDialog(QDialog):
     def values(self):
         return (self.backend.currentText(), self.channel.text(),
                 int(self.bitrate.currentText()), self.loop_back.isChecked())
+
+
+class EntryTable(QWidget):
+    """One transmissions table + button bar, owned by a generator tab."""
+
+    COLS = ["On", "Type", "ID", "Name", "Payload", "Interval (ms)"]
+    MAX_ENTRIES = 16
+    TABLE_HEIGHT = 146  # +20% over the original 122px
+
+    def __init__(self, parent, add_label, add_fn, transmit_fn, log_fn):
+        super().__init__(parent)
+        self._add_fn = add_fn
+        self._transmit = transmit_fn
+        self._log = log_fn
+        self.entries: list[dict] = []
+        self._updating = False
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.table = QTableWidget(0, len(self.COLS))
+        self.table.setHorizontalHeaderLabels(self.COLS)
+        self.table.setEditTriggers(
+            QTableWidget.DoubleClicked | QTableWidget.EditKeyPressed)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setFixedHeight(self.TABLE_HEIGHT)
+        self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.itemChanged.connect(self._item_changed)
+        lay.addWidget(self.table)
+        lay.addSpacing(6)
+        btns = QHBoxLayout()
+        self.btn_add = QPushButton(add_label)
+        self.btn_remove = QPushButton("Remove")
+        self.btn_send = QPushButton("Send Selected Once")
+        self.btn_start = QPushButton("Start All")
+        self.btn_stop = QPushButton("Stop All")
+        self.btn_add.clicked.connect(self._add_fn)
+        self.btn_remove.clicked.connect(self.remove_selected)
+        self.btn_send.clicked.connect(self.send_selected)
+        self.btn_start.clicked.connect(self.start_all)
+        self.btn_stop.clicked.connect(self.stop_all)
+        for b in (self.btn_add, self.btn_remove, self.btn_send,
+                  self.btn_start, self.btn_stop):
+            btns.addWidget(b)
+        btns.addStretch(1)
+        lay.addLayout(btns)
+
+    def add_entry(self, kind, name, msg, interval, payload=""):
+        if len(self.entries) >= self.MAX_ENTRIES:
+            return False
+        entry = {"kind": kind, "name": name, "msg": msg,
+                 "interval": interval, "enabled": True, "fails": 0,
+                 "timer": None,
+                 "payload": payload or data_to_str(msg.data)}
+        self.entries.append(entry)
+        row = self.table.rowCount()
+        self._updating = True
+        try:
+            self.table.insertRow(row)
+            on = QTableWidgetItem()
+            on.setFlags(on.flags() | Qt.ItemIsUserCheckable)
+            on.setCheckState(Qt.Checked)
+            self.table.setItem(row, 0, on)
+            self.table.setItem(row, 1, QTableWidgetItem(kind))
+            self.table.setItem(
+                row, 2, QTableWidgetItem(f"0x{msg.arbitration_id:X}"))
+            self.table.setItem(row, 3, QTableWidgetItem(name))
+            self.table.setItem(row, 4, QTableWidgetItem(entry["payload"]))
+            self.table.setItem(row, 5, QTableWidgetItem(str(interval)))
+        finally:
+            self._updating = False
+        return True
+
+    def selected(self):
+        row = self.table.currentRow()
+        if 0 <= row < len(self.entries):
+            return row, self.entries[row]
+        return None, None
+
+    def remove_selected(self):
+        row, entry = self.selected()
+        if entry is None:
+            return False
+        self._timer_off(entry)
+        del self.entries[row]
+        self._updating = True
+        try:
+            self.table.removeRow(row)
+        finally:
+            self._updating = False
+        return True
+
+    def send_selected(self):
+        _, entry = self.selected()
+        if entry is not None:
+            self._send_entry(entry)
+            return True
+        return False
+
+    def start_all(self):
+        n = 0
+        for e in self.entries:
+            if e["enabled"]:
+                self._timer_on(e)
+                n += 1
+        return n
+
+    def stop_all(self):
+        for e in self.entries:
+            self._timer_off(e)
+
+    def _item_changed(self, item):
+        if self._updating:
+            return
+        row = item.row()
+        if not 0 <= row < len(self.entries):
+            return
+        entry = self.entries[row]
+        if item.column() == 0:
+            entry["enabled"] = item.checkState() == Qt.Checked
+            if entry["enabled"]:
+                self._timer_on(entry)
+            else:
+                self._timer_off(entry)
+        elif item.column() == 5:
+            try:
+                iv = int(item.text())
+                assert 10 <= iv <= 10000
+            except (ValueError, AssertionError):
+                self._updating = True
+                try:
+                    item.setText(str(entry["interval"]))
+                finally:
+                    self._updating = False
+                return
+            entry["interval"] = iv
+            if entry["timer"] is not None and entry["timer"].isActive():
+                entry["timer"].start(iv)
+
+    def _timer_on(self, entry):
+        if not entry["enabled"]:
+            return
+        if entry["timer"] is None:
+            t = QTimer(self)
+            t.timeout.connect(lambda e=entry: self._send_entry(e))
+            entry["timer"] = t
+        entry["timer"].start(entry["interval"])
+
+    def _timer_off(self, entry):
+        if entry["timer"] is not None and entry["timer"].isActive():
+            entry["timer"].stop()
+
+    def _send_entry(self, entry):
+        if not entry["enabled"]:
+            return
+        if self._transmit(entry["msg"]):
+            entry["fails"] = 0
+        else:
+            entry["fails"] += 1
+            if entry["fails"] >= 3:
+                self._timer_off(entry)
+                self._log(
+                    f"entry 0x{entry['msg'].arbitration_id:X} auto-stopped: "
+                    "TX failing, bus may be in error state")
 
 
 class MainWindow(QMainWindow):
@@ -85,13 +253,12 @@ class MainWindow(QMainWindow):
         self.rx_count = 0
         self.tx_count = 0
         self.err_count = 0
-        self._tx_fail_streak = 0  # consecutive TX failures (auto-stop cyclic)
+        self._tx_fail = {"manual": 0, "dbc": 0}  # per-source fail streaks
         self.autoscroll = True
         self.theme_mode = "system"
         self.dbc = DbcManager()
         self.sig_editors = {}
-        self.entries: list[dict] = []
-        self._updating_entries = False
+        self._tx_fail = {"manual": 0, "dbc": 0}
         self._last_decode_failed = False
         self._last_errstorm = 0.0
         self._build_ui()
@@ -157,6 +324,9 @@ class MainWindow(QMainWindow):
         for c, col in enumerate(COLUMNS):
             if col == "Data":
                 hdr.setSectionResizeMode(c, QHeaderView.Stretch)
+            elif col in COL_WIDTHS:
+                hdr.setSectionResizeMode(c, QHeaderView.Fixed)
+                self.table.setColumnWidth(c, COL_WIDTHS[col])
             else:
                 hdr.setSectionResizeMode(c, QHeaderView.ResizeToContents)
         layout.addWidget(self.table, 1)
@@ -178,47 +348,30 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(0, 0, 0, 0)
         self.gen_tabs = QTabWidget()
         self.gen_tabs.setStyleSheet("QTabBar::tab { width: 120px; }")
-        self.gen_tabs.addTab(self._manual_group(), "Manual")
-        self.gen_tabs.addTab(self._dbc_group(), "DBC")
+        man = QWidget()
+        man_lay = QVBoxLayout(man)
+        man_lay.setContentsMargins(0, 0, 0, 0)
+        man_lay.addWidget(self._manual_group())
+        self.man_entries = EntryTable(
+            self, "Add Manual", self.add_manual_entry,
+            lambda msg: self._transmit(msg, quiet=True), self.log_msg)
+        man_lay.addWidget(self.man_entries)
+        dbc = QWidget()
+        dbc_lay = QVBoxLayout(dbc)
+        dbc_lay.setContentsMargins(0, 0, 0, 0)
+        dbc_lay.addWidget(self._dbc_group())
+        self.dbc_entries = EntryTable(
+            self, "Add DBC", self.add_dbc_entry,
+            lambda msg: self._transmit(msg, quiet=True), self.log_msg)
+        dbc_lay.addWidget(self.dbc_entries)
+        self.gen_tabs.addTab(man, "Manual")
+        self.gen_tabs.addTab(dbc, "DBC")
         lay.addWidget(self.gen_tabs)
-        lay.addWidget(self._entries_group())
         return w
 
-    def _entries_group(self):
-        box = QGroupBox("Active Transmissions (multi-message cyclic)")
-        lay = QVBoxLayout(box)
-        self.lbl_dbc_hint = QLabel("Tip: File → Load DBC to enable DBC messages.")
-        lay.addWidget(self.lbl_dbc_hint)
-        self.entry_table = QTableWidget(0, 6)
-        self.entry_table.setHorizontalHeaderLabels(
-            ["On", "Type", "ID", "Name", "Payload", "Interval (ms)"])
-        self.entry_table.setEditTriggers(
-            QTableWidget.DoubleClicked | QTableWidget.EditKeyPressed)
-        self.entry_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.entry_table.setFixedHeight(122)
-        self.entry_table.verticalHeader().setVisible(False)
-        self.entry_table.horizontalHeader().setStretchLastSection(True)
-        self.entry_table.itemChanged.connect(self._entry_item_changed)
-        lay.addWidget(self.entry_table)
-        btns = QHBoxLayout()
-        self.btn_add_man = QPushButton("Add Manual")
-        self.btn_add_dbc = QPushButton("Add DBC")
-        self.btn_entry_remove = QPushButton("Remove")
-        self.btn_entry_send = QPushButton("Send Selected Once")
-        self.btn_entry_start = QPushButton("Start All")
-        self.btn_entry_stop = QPushButton("Stop All")
-        self.btn_add_man.clicked.connect(self.add_manual_entry)
-        self.btn_add_dbc.clicked.connect(self.add_dbc_entry)
-        self.btn_entry_remove.clicked.connect(self.remove_selected_entry)
-        self.btn_entry_send.clicked.connect(self.send_selected_entry)
-        self.btn_entry_start.clicked.connect(self.start_all_entries)
-        self.btn_entry_stop.clicked.connect(self.stop_all_entries)
-        for b in (self.btn_add_man, self.btn_add_dbc, self.btn_entry_remove,
-                  self.btn_entry_send, self.btn_entry_start, self.btn_entry_stop):
-            btns.addWidget(b)
-        btns.addStretch(1)
-        lay.addLayout(btns)
-        return box
+    def _active_entries(self):
+        return self.man_entries if self.gen_tabs.currentIndex() == 0 \
+            else self.dbc_entries
 
     def _manual_group(self):
         w = QWidget()
@@ -251,9 +404,6 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.btn_send)
         lay.addWidget(self.btn_cyclic)
         lay.addWidget(self.btn_cyclic_stop)
-        self.btn_add_dbc_here = QPushButton("Add DBC Entry")
-        self.btn_add_dbc_here.clicked.connect(self.add_dbc_entry)
-        lay.addWidget(self.btn_add_dbc_here)
         return w
 
     def _dbc_group(self):
@@ -261,14 +411,19 @@ class MainWindow(QMainWindow):
         lay = QVBoxLayout(w)
         lay.setContentsMargins(4, 4, 4, 4)
         top = QHBoxLayout()
+        lbl_msg = QLabel("Message:")
+        lbl_msg.setAlignment(Qt.AlignVCenter)
         self.dbc_msg = QComboBox()
         self.dbc_msg.setEnabled(False)
         self.dbc_msg.currentTextChanged.connect(self._rebuild_signal_editors)
-        top.addWidget(QLabel("Message:"))
+        top.addWidget(lbl_msg)
         top.addWidget(self.dbc_msg, 1)
         self.dbc_dlc = QLabel("DLC: -")
+        self.dbc_dlc.setAlignment(Qt.AlignVCenter)
         top.addWidget(self.dbc_dlc)
-        top.addWidget(QLabel("Interval ms:"))
+        lbl_iv = QLabel("Interval ms:")
+        lbl_iv.setAlignment(Qt.AlignVCenter)
+        top.addWidget(lbl_iv)
         self.dbc_interval = QSpinBox()
         self.dbc_interval.setRange(10, 10000)
         self.dbc_interval.setValue(100)
@@ -283,9 +438,6 @@ class MainWindow(QMainWindow):
         top.addWidget(self.btn_dbc_send)
         top.addWidget(self.btn_dbc_cyclic)
         top.addWidget(self.btn_dbc_cyclic_stop)
-        self.btn_add_man_here = QPushButton("Add Manual Entry")
-        self.btn_add_man_here.clicked.connect(self.add_manual_entry)
-        top.addWidget(self.btn_add_man_here)
         lay.addLayout(top)
         self.dbc_signals = QWidget()
         self.dbc_sig_layout = QFormLayout(self.dbc_signals)
@@ -387,14 +539,24 @@ class MainWindow(QMainWindow):
         a.triggered.connect(self.add_dbc_entry)
         gen.addAction(a)
         a = QAction("Send Selected Entry Once", self)
-        a.triggered.connect(self.send_selected_entry)
+        a.triggered.connect(lambda: self._active_entries().send_selected())
         gen.addAction(a)
-        a = QAction("Start All Entries", self)
-        a.triggered.connect(self.start_all_entries)
+        a = QAction("Start All Entries (this tab)", self)
+        a.triggered.connect(self._start_all_visible)
         gen.addAction(a)
-        a = QAction("Stop All Entries", self)
-        a.triggered.connect(self.stop_all_entries)
+        a = QAction("Stop All Entries (this tab)", self)
+        a.triggered.connect(self._stop_all_visible)
         gen.addAction(a)
+
+    def _start_all_visible(self):
+        if self.bus is None:
+            QMessageBox.information(self, "TX", "Press Start first.")
+            return
+        n = self._active_entries().start_all()
+        self.log_msg(f"cyclic started for {n} entries")
+
+    def _stop_all_visible(self):
+        self._active_entries().stop_all()
 
         help_m = m.addMenu("&Help")
         a = QAction("About", self)
@@ -413,7 +575,7 @@ class MainWindow(QMainWindow):
             self.stop_cyclic()
             return
         self._note_cyclic_result(self._transmit(msg, quiet=True),
-                                 self.stop_cyclic, "Manual")
+                                 self.stop_cyclic, "Manual", "manual")
 
     def _dbc_cyclic_tick(self):
         msg = self._current_dbc_tx(quiet=True)
@@ -421,7 +583,7 @@ class MainWindow(QMainWindow):
             self.dbc_stop_cyclic()
             return
         self._note_cyclic_result(self._transmit(msg, quiet=True),
-                                 self.dbc_stop_cyclic, "DBC")
+                                 self.dbc_stop_cyclic, "DBC", "dbc")
 
     # ---- log ----
     def log_msg(self, text: str):
@@ -471,7 +633,6 @@ class MainWindow(QMainWindow):
         self.dbc_msg.addItems(names)
         self.dbc_msg.setEnabled(bool(names))
         self.lbl_dbc.setText(f"{os.path.basename(path)} ({n} msgs)")
-        self.lbl_dbc_hint.setVisible(False)
         self.log_msg(f"DBC loaded: {path} ({n} messages)")
         self._rebuild_signal_editors(self.dbc_msg.currentText())
 
@@ -529,7 +690,8 @@ class MainWindow(QMainWindow):
     def stop(self):
         self.stop_cyclic()
         self.dbc_stop_cyclic()
-        self.stop_all_entries()
+        self.man_entries.stop_all()
+        self.dbc_entries.stop_all()
         if self.worker:
             self.worker.stop()
         if self.thread:
@@ -690,7 +852,7 @@ class MainWindow(QMainWindow):
         self.index = 0
         self.t0 = None
         self.rx_count = self.tx_count = self.err_count = 0
-        self._tx_fail_streak = 0
+        self._tx_fail = {"manual": 0, "dbc": 0}
         self._status()
 
     # ---- TX path (manual) ----
@@ -704,7 +866,7 @@ class MainWindow(QMainWindow):
         return can.Message(arbitration_id=arb_id, data=data,
                            is_extended_id=arb_id > 0x7FF)
 
-    def _transmit(self, msg: can.Message, quiet=False) -> bool:
+    def _transmit(self, msg: can.Message, quiet=False, source="manual") -> bool:
         """Send one frame. Timer-driven callers must pass quiet=True so a
         failing bus can never stack modal dialogs over the Stop button."""
         if self.bus is None:
@@ -714,12 +876,12 @@ class MainWindow(QMainWindow):
         try:
             self.bus.send(msg)
         except Exception as e:  # noqa: BLE001
-            self._tx_fail_streak += 1
-            self.log_msg(f"TX failed ({self._tx_fail_streak}x): {e}")
+            self._tx_fail[source] = self._tx_fail.get(source, 0) + 1
+            self.log_msg(f"TX failed ({self._tx_fail[source]}x): {e}")
             if not quiet:
                 QMessageBox.critical(self, "TX failed", str(e))
             return False
-        self._tx_fail_streak = 0
+        self._tx_fail[source] = 0
         self._append({"timestamp": time.time(), "local_ts": time.time(),
                       "channel": self.channel_label(),
                       "direction": "TX", "extended": msg.is_extended_id,
@@ -727,10 +889,10 @@ class MainWindow(QMainWindow):
                       "data": bytes(msg.data)})
         return True
 
-    def _note_cyclic_result(self, ok: bool, stop_fn, label: str):
+    def _note_cyclic_result(self, ok: bool, stop_fn, label: str, source: str):
         if ok:
             return
-        if self._tx_fail_streak >= 3:
+        if self._tx_fail.get(source, 0) >= 3:
             stop_fn()
             self.log_msg(f"{label} cyclic auto-stopped: TX failing, "
                          "bus may be in error state")
@@ -809,26 +971,18 @@ class MainWindow(QMainWindow):
     # ---- multi-message entry table ----
     MAX_ENTRIES = 16
 
-    def _selected_entry(self):
-        row = self.entry_table.currentRow()
-        if 0 <= row < len(self.entries):
-            return row, self.entries[row]
-        QMessageBox.information(self, "Entries", "Select a table row first.")
-        return None, None
-
     def add_manual_entry(self):
-        if len(self.entries) >= self.MAX_ENTRIES:
-            QMessageBox.information(self, "Entries", "Entry table is full (16).")
-            return
         msg = self._current_tx()
         if msg is None:
             return
-        self._add_entry("Manual", "", msg, self.tx_interval.value())
+        if self.man_entries.add_entry(
+                "Manual", "", msg, self.tx_interval.value()):
+            self.log_msg(f"manual entry added: {hex(msg.arbitration_id)} "
+                         f"@{self.tx_interval.value()}ms")
+        else:
+            QMessageBox.information(self, "Entries", "Entry table is full (16).")
 
     def add_dbc_entry(self):
-        if len(self.entries) >= self.MAX_ENTRIES:
-            QMessageBox.information(self, "Entries", "Entry table is full (16).")
-            return
         name = self.dbc_msg.currentText()
         if not name:
             QMessageBox.information(self, "DBC", "Load a DBC file first.")
@@ -838,118 +992,12 @@ class MainWindow(QMainWindow):
             return
         summary = DbcManager.fmt_signals(
             {sn: box.value() for sn, box in self.sig_editors.items()})
-        self._add_entry("DBC", name, msg, self.dbc_interval.value(),
-                        payload=summary)
-
-    def _add_entry(self, kind, name, msg, interval, payload=""):
-        entry = {"kind": kind, "name": name, "msg": msg,
-                 "interval": interval, "enabled": True,
-                 "timer": None, "payload": payload or data_to_str(msg.data)}
-        self.entries.append(entry)
-        row = self.entry_table.rowCount()
-        self._updating_entries = True
-        try:
-            self.entry_table.insertRow(row)
-            on = QTableWidgetItem()
-            on.setFlags(on.flags() | Qt.ItemIsUserCheckable)
-            on.setCheckState(Qt.Checked)
-            self.entry_table.setItem(row, 0, on)
-            self.entry_table.setItem(row, 1, QTableWidgetItem(kind))
-            self.entry_table.setItem(row, 2, QTableWidgetItem(f"0x{msg.arbitration_id:X}"))
-            self.entry_table.setItem(row, 3, QTableWidgetItem(name))
-            self.entry_table.setItem(row, 4, QTableWidgetItem(entry["payload"]))
-            self.entry_table.setItem(row, 5, QTableWidgetItem(str(interval)))
-        finally:
-            self._updating_entries = False
-        self.log_msg(f"entry added: {kind} {name or hex(msg.arbitration_id)} "
-                     f"@{interval}ms")
-
-    def _entry_item_changed(self, item):
-        if getattr(self, "_updating_entries", False):
-            return
-        row = item.row()
-        if not 0 <= row < len(self.entries):
-            return
-        entry = self.entries[row]
-        if item.column() == 0:
-            entry["enabled"] = item.checkState() == Qt.Checked
-            if entry["enabled"]:
-                self._entry_timer_on(entry)
-            else:
-                self._entry_timer_off(entry)
-        elif item.column() == 5:
-            try:
-                iv = int(item.text())
-                assert 10 <= iv <= 10000
-            except (ValueError, AssertionError):
-                self._updating_entries = True
-                try:
-                    item.setText(str(entry["interval"]))
-                finally:
-                    self._updating_entries = False
-                return
-            entry["interval"] = iv
-            if entry["timer"] is not None and entry["timer"].isActive():
-                entry["timer"].start(iv)
-
-    def _entry_timer_on(self, entry):
-        if self.bus is None or not entry["enabled"]:
-            return
-        if entry["timer"] is None:
-            t = QTimer(self)
-            t.timeout.connect(lambda e=entry: self._send_entry(e))
-            entry["timer"] = t
-        entry["timer"].start(entry["interval"])
-
-    def _entry_timer_off(self, entry):
-        if entry["timer"] is not None and entry["timer"].isActive():
-            entry["timer"].stop()
-
-    def _send_entry(self, entry):
-        if self.bus is None or not entry["enabled"]:
-            return
-        if self._transmit(entry["msg"], quiet=True):
-            entry["fails"] = 0
+        if self.dbc_entries.add_entry(
+                "DBC", name, msg, self.dbc_interval.value(), payload=summary):
+            self.log_msg(f"DBC entry added: {name} "
+                         f"@{self.dbc_interval.value()}ms")
         else:
-            entry["fails"] = entry.get("fails", 0) + 1
-            if entry["fails"] >= 3:
-                self._entry_timer_off(entry)
-                self.log_msg(
-                    f"entry 0x{entry['msg'].arbitration_id:X} auto-stopped: "
-                    "TX failing, bus may be in error state")
-
-    def remove_selected_entry(self):
-        row, entry = self._selected_entry()
-        if entry is None:
-            return
-        self._entry_timer_off(entry)
-        del self.entries[row]
-        self._updating_entries = True
-        try:
-            self.entry_table.removeRow(row)
-        finally:
-            self._updating_entries = False
-        self.log_msg("entry removed")
-
-    def send_selected_entry(self):
-        _, entry = self._selected_entry()
-        if entry is not None:
-            self._send_entry(entry)
-
-    def start_all_entries(self):
-        if self.bus is None:
-            QMessageBox.information(self, "TX", "Press Start first.")
-            return
-        n = 0
-        for e in self.entries:
-            if e["enabled"]:
-                self._entry_timer_on(e)
-                n += 1
-        self.log_msg(f"cyclic started for {n} entries")
-
-    def stop_all_entries(self):
-        for e in getattr(self, "entries", []):
-            self._entry_timer_off(e)
+            QMessageBox.information(self, "Entries", "Entry table is full (16).")
 
     # ---- export ----
     def _filtered_records(self):

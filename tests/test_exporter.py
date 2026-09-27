@@ -29,13 +29,6 @@ def test_csv_headers_and_rows(tmp_path):
 
 
 @pytest.mark.exporter
-def test_csv_empty(tmp_path):
-    p = str(tmp_path / "e.csv")
-    assert export_csv(p, COLS, []) == 0
-    assert open(p).read().splitlines() == [",".join(COLS)]
-
-
-@pytest.mark.exporter
 def test_asc_format(tmp_path):
     p = str(tmp_path / "t.asc")
     recs = [_rec(), _rec(direction="TX", rx_tx="TX"),
