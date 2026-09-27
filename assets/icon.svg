@@ -2,20 +2,10 @@
   <!-- badge -->
   <rect x="8" y="8" width="240" height="240" rx="48" fill="#0f766e"/>
   <rect x="8" y="8" width="240" height="240" rx="48" fill="none" stroke="#0b4f4a" stroke-width="8"/>
-  <!-- CAN: differential bus pair + nodes -->
-  <line x1="36" y1="60" x2="220" y2="60" stroke="#fbbf24" stroke-width="10" stroke-linecap="round"/>
-  <line x1="36" y1="92" x2="220" y2="92" stroke="#fbbf24" stroke-width="10" stroke-linecap="round"/>
-  <circle cx="76" cy="76" r="16" fill="#ecfeff" stroke="#0b4f4a" stroke-width="7"/>
-  <circle cx="128" cy="76" r="16" fill="#ecfeff" stroke="#0b4f4a" stroke-width="7"/>
-  <circle cx="180" cy="76" r="16" fill="#ecfeff" stroke="#0b4f4a" stroke-width="7"/>
-  <rect x="68" y="68" width="16" height="16" rx="3" fill="#0f766e"/>
-  <rect x="120" y="68" width="16" height="16" rx="3" fill="#0f766e"/>
-  <rect x="172" y="68" width="16" height="16" rx="3" fill="#0f766e"/>
-  <!-- Analyser: captured signal pulse -->
-  <polyline points="36,196 66,196 66,158 104,158 104,196 142,196 142,158 180,158 180,196 220,196"
-            fill="none" stroke="#ecfeff" stroke-width="10"
-            stroke-linecap="round" stroke-linejoin="round"/>
-  <!-- Analyser: magnifier over the pulse edge -->
-  <circle cx="142" cy="177" r="36" fill="none" stroke="#fbbf24" stroke-width="12"/>
-  <line x1="167" y1="202" x2="200" y2="235" stroke="#fbbf24" stroke-width="14" stroke-linecap="round"/>
+  <!-- CAN text -->
+  <text x="118" y="162" text-anchor="middle" font-family="sans-serif"
+        font-size="88" font-weight="bold" letter-spacing="2" fill="#ecfeff">CAN</text>
+  <!-- analyser magnifier over the text -->
+  <circle cx="184" cy="122" r="38" fill="none" stroke="#fbbf24" stroke-width="13"/>
+  <line x1="210" y1="148" x2="233" y2="171" stroke="#fbbf24" stroke-width="15" stroke-linecap="round"/>
 </svg>
