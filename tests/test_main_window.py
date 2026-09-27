@@ -7,7 +7,7 @@ from unittest import mock
 from PySide6.QtCore import Qt
 
 from main_window import COLUMNS, MainWindow
-from tests.conftest import DBC_PATH
+from tests.conftest import DBC_PATH, DEMO_DBC_PATH
 
 
 @pytest.fixture()
@@ -382,15 +382,15 @@ def test_dlc_defaults_to_eight(win):
 
 @pytest.mark.ui
 def test_dbc_signals_hidden_when_empty(win, qapp):
-    assert win.dbc_signals.isHidden()
+    assert win.dbc_sig_scroll.isHidden()
     assert win.dbc.load(DBC_PATH) == 2
     win._rebuild_signal_editors("ControlCmd")
     qapp.processEvents()
-    assert not win.dbc_signals.isHidden()
+    assert not win.dbc_sig_scroll.isHidden()
     assert win.dbc_sig_layout.rowCount() > 0
     win._rebuild_signal_editors("")
     qapp.processEvents()
-    assert win.dbc_signals.isHidden()
+    assert win.dbc_sig_scroll.isHidden()
 
 
 @pytest.mark.ui
@@ -521,3 +521,83 @@ def test_failed_open_keeps_start_enabled(win, qapp, monkeypatch):
     assert win.bus is None
     assert win.btn_start.isEnabled()
     assert not win.btn_stop.isEnabled()
+
+
+@pytest.mark.dbc
+def test_dbc_toggle_button_flips_label_and_action(win, qapp, monkeypatch):
+    monkeypatch.setattr("main_window.QFileDialog.getOpenFileName",
+                        lambda *a, **k: (DEMO_DBC_PATH, ""))
+    assert win.btn_dbc.text() == "Load DBC..."
+    assert not win.act_clear_dbc.isEnabled()
+    win.toggle_dbc()
+    qapp.processEvents()
+    assert win.dbc.loaded
+    assert win.btn_dbc.text() == "Clear DBC"
+    assert not win.act_load_dbc.isEnabled()
+    assert win.act_clear_dbc.isEnabled()
+    assert not win.act_gen_load_dbc.isEnabled()
+    assert win.act_gen_clear_dbc.isEnabled()
+    win.toggle_dbc()
+    qapp.processEvents()
+    assert not win.dbc.loaded
+    assert win.btn_dbc.text() == "Load DBC..."
+    assert win.act_load_dbc.isEnabled()
+    assert not win.act_clear_dbc.isEnabled()
+    win.toggle_dbc()
+    qapp.processEvents()
+    assert win.dbc.loaded
+    assert win.btn_dbc.text() == "Clear DBC"
+
+
+@pytest.mark.dbc
+def test_clear_dbc_stops_and_deletes_dbc_entries(win, qapp):
+    win.tx_id.setText("100")
+    win.tx_dlc.setValue(1)
+    win.tx_data.setText("00")
+    win.add_manual_entry()
+    win.load_dbc(DEMO_DBC_PATH)
+    qapp.processEvents()
+    win.add_dbc_entry()
+    assert len(win.dbc_entries.entries) == 1
+    assert win.dbc_entries.start_all() == 1
+    win.clear_dbc()
+    qapp.processEvents()
+    assert not win.dbc.loaded
+    assert win.lbl_dbc.text() == "no DBC"
+    assert win.dbc_msg.count() == 0
+    assert not win.dbc_msg.isEnabled()
+    assert win.dbc_dlc.text() == "DLC: -"
+    assert win.sig_editors == {}
+    assert win.dbc_sig_scroll.isHidden()
+    assert win.dbc_entries.entries == []
+    assert win.dbc_entries.table.rowCount() == 0
+    assert len(win.man_entries.entries) == 1
+    win.load_dbc(DEMO_DBC_PATH)
+    qapp.processEvents()
+    assert win.dbc.loaded
+    assert win.btn_dbc.text() == "Clear DBC"
+
+
+@pytest.mark.dbc
+def test_signal_editors_scroll_cap_keeps_dock_constant(win, qapp):
+    win.tabs.setCurrentIndex(0)
+    win.gen_tabs.setCurrentIndex(0)
+    qapp.processEvents()
+    dock_before = win.tabs.height()
+    trace_before = win.table.height()
+    man_min_before = win.gen_tabs.widget(0).minimumSizeHint().height()
+    win.load_dbc(DEMO_DBC_PATH)
+    win.dbc_msg.setCurrentText("ManySignals")
+    qapp.processEvents()
+    assert win.dbc_sig_layout.rowCount() == 9
+    unit = win.dbc_interval.sizeHint().height()
+    assert win.dbc_sig_scroll.maximumHeight() < 9 * unit
+    win.gen_tabs.setCurrentIndex(1)
+    qapp.processEvents()
+    assert win.tabs.height() <= 350
+    assert win.tabs.height() > dock_before
+    win.gen_tabs.setCurrentIndex(0)
+    qapp.processEvents()
+    assert win.tabs.height() == dock_before
+    assert win.table.height() == trace_before
+    assert win.gen_tabs.widget(0).minimumSizeHint().height() == man_min_before

@@ -20,6 +20,10 @@ class DbcManager:
         self.path = path
         return len(self.db.messages)
 
+    def unload(self):
+        self.db = None
+        self.path = ""
+
     @property
     def loaded(self) -> bool:
         return self.db is not None

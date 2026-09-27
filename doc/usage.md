@@ -52,15 +52,21 @@ bash scripts/run.sh               # candle ch 0 @500k normal mode; add --loop-ba
   (backend/channel/state/Rx/Tx/Err); Log (timestamped events).
 - Window opens 1280x950 at (200, 30) (1000x650 minimum); trace table
   Decoded column takes the stretch; entry tables hug their rows up to
-  204px inside a 350px bottom dock.
+  204px. The bottom dock keeps a separate fixed height per Generator
+  tab (Manual compact, DBC up to the 350px cap), so loading a DBC with
+  many signals never reshapes the Manual tab.
 - Menus: File (Load DBC, Export CSV/ASC, Exit), Measurement (Start/Stop),
   View (Autoscroll, Theme System/Light/Dark, Clear), Trace, Generator,
   Help → About (v0.1.0).
 
 ## DBC mode
-- File → Load DBC (or Load DBC... button). RX rows gain Sender/Name/Decoded
+- The toolbar button toggles: Load DBC... (file dialog) when empty,
+  Clear DBC when loaded (File and Generator menus mirror both actions).
+  Clearing stops DBC cyclic/entry timers and deletes DBC entries;
+  Manual entries are untouched. RX rows gain Sender/Name/Decoded
   columns; the DBC generator offers a message picker + signal editors with
-  range limits; DLC is automatic. Works with any `.dbc`.
+  range limits (editors scroll past 3 signals); DLC is automatic.
+  Works with any `.dbc`.
 - Export: CSV takes all columns incl. decoded text (filter applied) with
   Timestamp always as wall-clock plus an extra Epoch column (both from the
   local receipt clock, independent of the Delta/Absolute display mode);

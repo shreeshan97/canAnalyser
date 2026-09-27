@@ -9,7 +9,7 @@ from PySide6.QtGui import QAction, QActionGroup, QIcon
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QCheckBox, QDoubleSpinBox,
     QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QMainWindow, QMessageBox, QPushButton, QSpinBox,
+    QListWidget, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSpinBox,
     QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
@@ -22,6 +22,7 @@ from rx_worker import RxWorker
 from theme import apply_theme
 
 VERSION = "v0.1.0"
+DOCK_MAX = 350  # bottom dock never exceeds this; per-tab height below it
 COLUMNS = ["Index", "Timestamp", "Channel", "RX/TX", "Type", "ID",
            "Sender", "DLC", "Data", "Name", "Decoded", "Comment"]
 # Exact fixed widths (px @1280 window); Decoded stretches over the remainder.
@@ -69,6 +70,16 @@ class SetupDialog(QDialog):
     def values(self):
         return (self.backend.currentText(), self.channel.text(),
                 int(self.bitrate.currentText()), self.loop_back.isChecked())
+
+
+class CappedScroll(QScrollArea):
+    def sizeHint(self):
+        s = super().sizeHint()
+        inner = self.widget()
+        if inner is not None:
+            want = inner.sizeHint().height() + 2 * self.frameWidth()
+            s.setHeight(min(max(want, s.height()), self.maximumHeight()))
+        return s
 
 
 class EntryTable(QWidget):
@@ -303,7 +314,7 @@ class MainWindow(QMainWindow):
         self.btn_autoscroll.setChecked(True)
         self.btn_autoscroll.toggled.connect(self._set_autoscroll)
         self.btn_dbc = QPushButton("Load DBC...")
-        self.btn_dbc.clicked.connect(self.load_dbc)
+        self.btn_dbc.clicked.connect(self.toggle_dbc)
         self.lbl_dbc = QLabel("no DBC")
         top.addWidget(self.btn_start)
         top.addWidget(self.btn_stop)
@@ -358,8 +369,13 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._generator_tab(), "Generator")
         self.tabs.addTab(self._status_tab(), "CAN Status")
         self.tabs.addTab(self._log_tab(), "Log")
-        self.tabs.setMaximumHeight(350)
+        self.tabs.setMaximumHeight(DOCK_MAX)
         layout.addWidget(self.tabs)
+        for entries in (self.man_entries, self.dbc_entries):
+            m = entries.table.model()
+            m.rowsInserted.connect(lambda *a: self._fit_dock_height())
+            m.rowsRemoved.connect(lambda *a: self._fit_dock_height())
+            m.modelReset.connect(lambda *a: self._fit_dock_height())
 
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage("idle — press Start")
@@ -390,8 +406,21 @@ class MainWindow(QMainWindow):
         dbc_lay.addWidget(self.dbc_entries)
         self.gen_tabs.addTab(man, "Manual")
         self.gen_tabs.addTab(dbc, "DBC")
+        self.gen_tabs.currentChanged.connect(lambda _i: self._fit_dock_height())
         lay.addWidget(self.gen_tabs)
         return w
+
+    def _fit_dock_height(self):
+        try:
+            page = self.gen_tabs.currentWidget()
+        except RuntimeError:
+            return
+        if page is None:
+            return
+        need = (page.sizeHint().height()
+                + self.gen_tabs.tabBar().sizeHint().height()
+                + self.tabs.tabBar().sizeHint().height())
+        self.tabs.setFixedHeight(min(need, DOCK_MAX))
 
     def _active_entries(self):
         return self.man_entries if self.gen_tabs.currentIndex() == 0 \
@@ -465,8 +494,18 @@ class MainWindow(QMainWindow):
         lay.addLayout(top)
         self.dbc_signals = QWidget()
         self.dbc_sig_layout = QFormLayout(self.dbc_signals)
-        self.dbc_signals.setVisible(False)
-        lay.addWidget(self.dbc_signals)
+        self.dbc_sig_scroll = CappedScroll()
+        self.dbc_sig_scroll.setWidget(self.dbc_signals)
+        self.dbc_sig_scroll.setWidgetResizable(True)
+        self.dbc_sig_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff)
+        row = self.dbc_interval.sizeHint().height()
+        gap = self.dbc_sig_layout.spacing()
+        m = self.dbc_sig_layout.contentsMargins()
+        self.dbc_sig_scroll.setMaximumHeight(
+            3 * (row + max(gap, 0)) + m.top() + m.bottom())
+        self.dbc_sig_scroll.setVisible(False)
+        lay.addWidget(self.dbc_sig_scroll)
         return w
 
     def _status_tab(self):
@@ -520,9 +559,12 @@ class MainWindow(QMainWindow):
     def _build_menus(self):
         m = self.menuBar()
         file_m = m.addMenu("&File")
-        a = QAction("Load DBC...", self)
-        a.triggered.connect(self.load_dbc)
-        file_m.addAction(a)
+        self.act_load_dbc = QAction("Load DBC...", self)
+        self.act_load_dbc.triggered.connect(self.load_dbc)
+        file_m.addAction(self.act_load_dbc)
+        self.act_clear_dbc = QAction("Clear DBC", self)
+        self.act_clear_dbc.triggered.connect(self.clear_dbc)
+        file_m.addAction(self.act_clear_dbc)
         a = QAction("Export Trace (CSV)...", self)
         a.triggered.connect(self.export_csv)
         file_m.addAction(a)
@@ -584,6 +626,13 @@ class MainWindow(QMainWindow):
         self.act_dbc_cyc.triggered.connect(self.toggle_dbc_cyclic)
         gen.addAction(self.act_dbc_cyc)
         gen.addSeparator()
+        self.act_gen_load_dbc = QAction("Load DBC...", self)
+        self.act_gen_load_dbc.triggered.connect(self.load_dbc)
+        gen.addAction(self.act_gen_load_dbc)
+        self.act_gen_clear_dbc = QAction("Clear DBC", self)
+        self.act_gen_clear_dbc.triggered.connect(self.clear_dbc)
+        gen.addAction(self.act_gen_clear_dbc)
+        gen.addSeparator()
         a = QAction("Add Manual Entry", self)
         a.triggered.connect(self.add_manual_entry)
         gen.addAction(a)
@@ -600,6 +649,7 @@ class MainWindow(QMainWindow):
         a.triggered.connect(self._stop_all_visible)
         gen.addAction(a)
         self._sync_bus_buttons()
+        self._sync_dbc_buttons()
 
     def _start_all_visible(self):
         if self.bus is None:
@@ -670,9 +720,10 @@ class MainWindow(QMainWindow):
         self.act_autoscroll.setChecked(on)
 
     # ---- DBC ----
-    def load_dbc(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Load DBC file", "", "DBC files (*.dbc);;All files (*)")
+    def load_dbc(self, path=None):
+        if path is None:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Load DBC file", "", "DBC files (*.dbc);;All files (*)")
         if not path:
             return
         try:
@@ -688,12 +739,51 @@ class MainWindow(QMainWindow):
         self.lbl_dbc.setText(f"{os.path.basename(path)} ({n} msgs)")
         self.log_msg(f"DBC loaded: {path} ({n} messages)")
         self._rebuild_signal_editors(self.dbc_msg.currentText())
+        self._sync_dbc_buttons()
+
+    def toggle_dbc(self):
+        if self.dbc.loaded:
+            self.clear_dbc()
+        else:
+            self.load_dbc()
+
+    def clear_dbc(self):
+        if not self.dbc.loaded:
+            return
+        name = os.path.basename(self.dbc.path)
+        self.dbc_stop_cyclic()
+        t = self.dbc_entries
+        t.stop_all()
+        t.entries.clear()
+        t._updating = True
+        try:
+            t.table.setRowCount(0)
+        finally:
+            t._updating = False
+        t._fit_table_height()
+        self.dbc.unload()
+        self.dbc_msg.clear()
+        self.dbc_msg.setEnabled(False)
+        self.dbc_dlc.setText("DLC: -")
+        self._rebuild_signal_editors("")
+        self.lbl_dbc.setText("no DBC")
+        self.log_msg(f"DBC unloaded: {name}")
+        self._sync_dbc_buttons()
+        self._fit_dock_height()
+
+    def _sync_dbc_buttons(self):
+        loaded = self.dbc.loaded
+        self.btn_dbc.setText("Clear DBC" if loaded else "Load DBC...")
+        self.act_load_dbc.setEnabled(not loaded)
+        self.act_clear_dbc.setEnabled(loaded)
+        self.act_gen_load_dbc.setEnabled(not loaded)
+        self.act_gen_clear_dbc.setEnabled(loaded)
 
     def _rebuild_signal_editors(self, name: str):
         while self.dbc_sig_layout.rowCount():
             self.dbc_sig_layout.removeRow(0)
         self.sig_editors = {}
-        self.dbc_signals.setVisible(False)
+        self.dbc_sig_scroll.setVisible(False)
         if not name:
             return
         msg = self.dbc.get_message(name)
@@ -710,7 +800,8 @@ class MainWindow(QMainWindow):
             unit = f" [{s.unit}]" if s.unit else ""
             self.dbc_sig_layout.addRow(f"{s.name}{unit}:", box)
             self.sig_editors[s.name] = box
-        self.dbc_signals.setVisible(bool(self.sig_editors))
+        self.dbc_sig_scroll.setVisible(bool(self.sig_editors))
+        self._fit_dock_height()
 
     # ---- bus control ----
     def channel_label(self):
@@ -772,6 +863,10 @@ class MainWindow(QMainWindow):
         self._sync_bus_buttons()
         self.log_msg("bus closed")
         self._status(prefix="stopped — ")
+
+    def showEvent(self, event):  # noqa: N802
+        super().showEvent(event)
+        self._fit_dock_height()
 
     def closeEvent(self, event):  # noqa: N802
         self.stop()

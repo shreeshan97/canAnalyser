@@ -8,6 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
 DBC_PATH = os.path.join(ROOT, "tests", "data", "example.dbc")
+DEMO_DBC_PATH = os.path.join(ROOT, "dbc", "demo.dbc")
 
 
 @pytest.fixture(scope="session")

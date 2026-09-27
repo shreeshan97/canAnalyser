@@ -51,9 +51,14 @@ Normal mode by default (`loop_back=False`); silicon loopback is opt-in.
 Trace columns: Index 40, Timestamp 160, Channel 75, RX/TX 50, Type 50,
 ID 70, Sender 75, DLC 40, Data Fixed 220, Name Interactive (default 140),
 Decoded Stretch, Comment Interactive (default 130).
-Window 1280x950 at (200,30), min 1000x650; bottom dock cap 350;
-entry tables hug rows with a 3-row floor (cap 204); status card hugs
-content with x1.5 width baked into Interactive columns;
+Window 1280x950 at (200,30), min 1000x650; bottom dock keeps a separate
+fixed height per Generator tab via `_fit_dock_height()` (DBC clamped to
+`DOCK_MAX`=350) — never use minimums for tab content, QTabWidget minimums
+propagate max-over-pages and pin every tab; entry tables hug rows with
+a 3-row floor (cap 204); status card hugs content with x1.5 width baked
+into Interactive columns; DBC toolbar button toggles Load/Clear
+(`_sync_dbc_buttons()`; unload stops timers + deletes DBC entries only);
+signal editors live in a capped scroll area (`CappedScroll`, ~3 rows).
 Setup dialog min width 460 (height follows content), Devices label
 top-aligned.
 Timestamps: Delta = per-(ID,direction) inter-arrival, `.6f`, first sighting

@@ -53,5 +53,16 @@ BO_ 2000 ExtendedDiag: 8 Dash
  SG_ DiagCode : 0|16@1+ (1,0) [0|65535] "" ECU
  SG_ DiagValue : 16|16@1+ (1,0) [0|65535] "" ECU
 
+BO_ 1100 ManySignals: 8 ECU
+ SG_ S0 : 0|8@1+ (1,0) [0|255] "" Engine
+ SG_ S1 : 8|8@1+ (1,0) [0|255] "" Engine
+ SG_ S2 : 16|8@1+ (1,0) [0|255] "" Engine
+ SG_ S3 : 24|8@1+ (1,0) [0|255] "" Engine
+ SG_ S4 : 32|8@1+ (1,0) [0|255] "" Engine
+ SG_ S5 : 40|8@1+ (1,0) [0|255] "" Engine
+ SG_ S6 : 48|8@1+ (1,0) [0|255] "" Engine
+ SG_ S7 : 56|4@1+ (1,0) [0|15] "" Engine
+ SG_ S8 : 60|4@1+ (1,0) [0|15] "" Engine
+
 VAL_ 512 GearReq 0 "Park" 1 "Reverse" 2 "Neutral" 3 "Drive" ;
 VAL_ 772 BrakePressed 0 "Released" 1 "Pressed" ;
