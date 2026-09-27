@@ -208,7 +208,7 @@ def test_failing_entry_auto_stops(win, qapp):
 
 @pytest.mark.ui
 def test_default_and_minimum_size(win):
-    assert (win.width(), win.height()) == (1280, 800)
+    assert (win.width(), win.height()) == (1280, 900)
     assert win.minimumWidth() == 1000
     assert win.minimumHeight() == 650
 
@@ -225,7 +225,7 @@ def test_theme_repaints_bottom_tabs(win, qapp):
     light (palette alone looked fine). Assert rendered pixels."""
     from PySide6.QtGui import QColor
     from PySide6.QtWidgets import QApplication
-    win.resize(1280, 800)
+    win.resize(1280, 900)
     win.add_manual_entry()
     qapp.processEvents()
     QApplication.instance().processEvents()
@@ -241,7 +241,7 @@ def test_theme_repaints_bottom_tabs(win, qapp):
 
     assert brightness(640, 200) > 128  # trace area
     assert brightness(640, 620) > 128  # generator tabs (was stuck dark)
-    assert brightness(640, 720) > 128  # entry table (was stuck dark)
+    assert brightness(640, 760) > 128  # entry table (was stuck dark)
 
 
 @pytest.mark.entries
@@ -310,3 +310,96 @@ def test_entry_interval_validation(win):
     assert t.entries[0]["interval"] == 100
     t.table.item(0, 5).setText("250")
     assert t.entries[0]["interval"] == 250
+
+
+@pytest.mark.ui
+def test_trace_column_pixels(win):
+    from PySide6.QtWidgets import QHeaderView
+
+    from main_window import COL_WIDTHS
+    assert COL_WIDTHS == {"Index": 40, "RX/TX": 50, "Type": 50,
+                         "Channel": 60, "Sender": 60, "ID": 70, "DLC": 40,
+                         "Timestamp": 160, "Name": 130, "Decoded": 130,
+                         "Comment": 130}
+    hdr = win.table.horizontalHeader()
+    data_c = COLUMNS.index("Data")
+    assert hdr.sectionResizeMode(data_c) == QHeaderView.Stretch
+    for c, col in enumerate(COLUMNS):
+        if col == "Data":
+            continue
+        assert hdr.sectionResizeMode(c) == QHeaderView.Fixed
+        assert win.table.columnWidth(c) == COL_WIDTHS[col]
+
+
+@pytest.mark.ui
+def test_entry_tables_share_height(win):
+    assert win.man_entries.table.height() == 154
+    assert win.dbc_entries.table.height() == 154
+
+
+@pytest.mark.ui
+def test_dlc_defaults_to_eight(win):
+    assert win.tx_dlc.value() == 8
+    assert win.tx_data.text() == "00 00 00 00 00 00 00 00"
+
+
+@pytest.mark.ui
+def test_dbc_signals_hidden_when_empty(win, qapp):
+    # isHidden (not isVisible: ancestor DBC tab starts unselected)
+    assert win.dbc_signals.isHidden()
+    assert win.dbc.load(DBC_PATH) == 2
+    win._rebuild_signal_editors("ControlCmd")
+    qapp.processEvents()
+    assert not win.dbc_signals.isHidden()
+    assert win.dbc_sig_layout.rowCount() > 0
+    win._rebuild_signal_editors("")
+    qapp.processEvents()
+    assert win.dbc_signals.isHidden()
+
+
+@pytest.mark.ui
+def test_status_table_hugs_content(win, qapp):
+    t = win.status_table
+    qapp.processEvents()
+    assert t.width() < 700  # card, not full tab width
+    assert t.height() < 120  # header + single row, no phantom rows
+    narrow = t.width()
+    win.rx_count, win.tx_count = 12345678, 87654321
+    win._status()
+    qapp.processEvents()
+    assert t.width() >= narrow  # tracks growing counters
+    assert t.horizontalScrollBar().maximum() == 0  # never clips
+
+
+@pytest.mark.trace
+def test_timestamp_delta_has_microseconds(win):
+    import re
+    win.view.setCurrentText("Raw")
+    win.ts_mode.setCurrentText("Delta")
+    win._append({"timestamp": 0.0, "local_ts": 1758982341.5,
+                 "channel": "ch", "direction": "RX", "extended": False,
+                 "arb_id": 0x123, "dlc": 1, "data": bytes([0])})
+    win._append({"timestamp": 0.0, "local_ts": 1758982341.500123,
+                 "channel": "ch", "direction": "RX", "extended": False,
+                 "arb_id": 0x124, "dlc": 1, "data": bytes([0])})
+    ts = COLUMNS.index("Timestamp")
+    assert re.fullmatch(r"\d+\.\d{6}", win.table.item(0, ts).text())
+    assert win.table.item(0, ts).text() == "0.000000"
+    assert win.table.item(1, ts).text() == "0.000123"
+
+
+@pytest.mark.trace
+def test_timestamp_absolute_is_wall_clock(win):
+    import datetime
+    import re
+    win.view.setCurrentText("Raw")
+    win.ts_mode.setCurrentText("Absolute")
+    win._append({"timestamp": 12.5,  # bus/uptime junk must not leak through
+                 "local_ts": 1758982341.5,
+                 "channel": "ch", "direction": "RX", "extended": False,
+                 "arb_id": 0x123, "dlc": 1, "data": bytes([0])})
+    ts = COLUMNS.index("Timestamp")
+    got = win.table.item(0, ts).text()
+    assert re.fullmatch(r"\d{2}:\d{2}:\d{2}\.\d{6}", got)
+    assert got == datetime.datetime.fromtimestamp(1758982341.5).strftime(
+        "%H:%M:%S.%f")

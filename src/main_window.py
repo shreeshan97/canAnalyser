@@ -1,4 +1,5 @@
 """Main window: RX trace + bottom tabs (Generator/Status/Log) + menubar."""
+import datetime
 import os
 import time
 
@@ -24,8 +25,8 @@ VERSION = "v0.1.0"
 COLUMNS = ["Index", "Timestamp", "Channel", "RX/TX", "Type", "ID",
            "Sender", "DLC", "Data", "Name", "Decoded", "Comment"]
 # Exact fixed widths (px @1280 window); Data stretches over the remainder.
-COL_WIDTHS = {"Index": 40, "RX/TX": 40, "Type": 40, "Channel": 60,
-              "Sender": 60, "ID": 70, "DLC": 40, "Timestamp": 130,
+COL_WIDTHS = {"Index": 40, "RX/TX": 50, "Type": 50, "Channel": 60,
+              "Sender": 60, "ID": 70, "DLC": 40, "Timestamp": 160,
               "Name": 130, "Decoded": 130, "Comment": 130}
 MAX_ROWS = 5000
 
@@ -71,7 +72,7 @@ class EntryTable(QWidget):
 
     COLS = ["On", "Type", "ID", "Name", "Payload", "Interval (ms)"]
     MAX_ENTRIES = 16
-    TABLE_HEIGHT = 146  # +20% over the original 122px
+    TABLE_HEIGHT = 154  # entry tables share one height in both tabs
 
     def __init__(self, parent, add_label, add_fn, transmit_fn, log_fn):
         super().__init__(parent)
@@ -82,6 +83,7 @@ class EntryTable(QWidget):
         self._updating = False
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
         self.table = QTableWidget(0, len(self.COLS))
         self.table.setHorizontalHeaderLabels(self.COLS)
         self.table.setEditTriggers(
@@ -92,7 +94,7 @@ class EntryTable(QWidget):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.itemChanged.connect(self._item_changed)
         lay.addWidget(self.table)
-        lay.addSpacing(6)
+        lay.addSpacing(4)
         btns = QHBoxLayout()
         self.btn_add = QPushButton(add_label)
         self.btn_remove = QPushButton("Remove")
@@ -234,7 +236,7 @@ class MainWindow(QMainWindow):
                  loop_back=False):
         super().__init__()
         self.setWindowTitle(f"canAnalyser {VERSION}")
-        self.resize(1280, 800)
+        self.resize(1280, 900)
         self.setMinimumSize(1000, 650)
         icon = os.path.join(os.path.dirname(__file__), "..", "assets", "icon.png")
         if os.path.exists(icon):
@@ -351,6 +353,7 @@ class MainWindow(QMainWindow):
         man = QWidget()
         man_lay = QVBoxLayout(man)
         man_lay.setContentsMargins(0, 0, 0, 0)
+        man_lay.setSpacing(4)
         man_lay.addWidget(self._manual_group())
         self.man_entries = EntryTable(
             self, "Add Manual", self.add_manual_entry,
@@ -359,6 +362,7 @@ class MainWindow(QMainWindow):
         dbc = QWidget()
         dbc_lay = QVBoxLayout(dbc)
         dbc_lay.setContentsMargins(0, 0, 0, 0)
+        dbc_lay.setSpacing(4)
         dbc_lay.addWidget(self._dbc_group())
         self.dbc_entries = EntryTable(
             self, "Add DBC", self.add_dbc_entry,
@@ -384,10 +388,10 @@ class MainWindow(QMainWindow):
         lay.addWidget(QLabel("DLC:"))
         self.tx_dlc = QSpinBox()
         self.tx_dlc.setRange(0, 8)
-        self.tx_dlc.setValue(6)
+        self.tx_dlc.setValue(8)
         lay.addWidget(self.tx_dlc)
         lay.addWidget(QLabel("Data:"))
-        self.tx_data = QLineEdit("00 00 00 00 00 00")
+        self.tx_data = QLineEdit("00 00 00 00 00 00 00 00")
         lay.addWidget(self.tx_data, 1)
         lay.addWidget(QLabel("Interval ms:"))
         self.tx_interval = QSpinBox()
@@ -441,6 +445,7 @@ class MainWindow(QMainWindow):
         lay.addLayout(top)
         self.dbc_signals = QWidget()
         self.dbc_sig_layout = QFormLayout(self.dbc_signals)
+        self.dbc_signals.setVisible(False)  # shown once signal rows exist
         lay.addWidget(self.dbc_signals)
         return w
 
@@ -450,11 +455,31 @@ class MainWindow(QMainWindow):
             ["Backend", "Channel", "State", "Rx", "Tx", "Err"])
         self.status_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.status_table.verticalHeader().setVisible(False)
+        self.status_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeToContents)
+        self.status_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.status_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(self.status_table)
+        top = QHBoxLayout()
+        top.addWidget(self.status_table)
+        top.addStretch(1)
+        lay.addLayout(top)
+        lay.addStretch(1)
+        self._fit_status_table()  # hug content: no dead grid, no clipping
         return w
+
+    def _fit_status_table(self):
+        """Pin the status table's outer rect to its content width/height."""
+        t = self.status_table
+        t.resizeColumnsToContents()
+        w = 2 * t.frameWidth()
+        for c in range(t.columnCount()):
+            w += t.columnWidth(c)
+        h = (t.horizontalHeader().sizeHint().height() + t.rowHeight(0)
+             + 2 * t.frameWidth())
+        t.setFixedSize(w, h)
 
     def _log_tab(self):
         self.log_list = QListWidget()
@@ -640,6 +665,7 @@ class MainWindow(QMainWindow):
         while self.dbc_sig_layout.rowCount():
             self.dbc_sig_layout.removeRow(0)
         self.sig_editors = {}
+        self.dbc_signals.setVisible(False)  # collapse gap when nothing to edit
         if not name:
             return
         msg = self.dbc.get_message(name)
@@ -656,6 +682,7 @@ class MainWindow(QMainWindow):
             unit = f" [{s.unit}]" if s.unit else ""
             self.dbc_sig_layout.addRow(f"{s.name}{unit}:", box)
             self.sig_editors[s.name] = box
+        self.dbc_signals.setVisible(bool(self.sig_editors))
 
     # ---- bus control ----
     def channel_label(self):
@@ -754,6 +781,7 @@ class MainWindow(QMainWindow):
                                str(self.rx_count), str(self.tx_count),
                                str(self.err_count)]):
             self.status_table.setItem(0, c, QTableWidgetItem(v))
+        self._fit_status_table()  # track growing counters, never clip
 
     def _decode_info(self, arb_id, data: bytes):
         sender = self.dbc.sender_of(arb_id)
@@ -773,9 +801,10 @@ class MainWindow(QMainWindow):
         if self.t0 is None:
             self.t0 = local
         if self.ts_mode.currentText() == "Delta":
-            ts_str = f"{local - self.t0:.4f}"
+            ts_str = f"{local - self.t0:.6f}"
         else:
-            ts_str = f"{fr['timestamp']:.4f}" if fr["timestamp"] else f"{local:.4f}"
+            ts_str = datetime.datetime.fromtimestamp(local).strftime(
+                "%H:%M:%S.%f")
         typ = "EXT." if fr["extended"] else "STD."
         id_str = f"0x{fr['arb_id']:X}"
         data = bytes(fr["data"])
