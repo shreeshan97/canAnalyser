@@ -345,23 +345,27 @@ def test_entry_tables_hug_rows(win):
     t = win.man_entries
     hdr_h = t.table.horizontalHeader().sizeHint().height()
     frame = 2 * t.table.frameWidth()
+    empty_row = t.table.verticalHeader().defaultSectionSize()
 
     def add_one(i):
         msg = can.Message(arbitration_id=0x100 + i, data=[i],
                           is_extended_id=False)
         assert t.add_entry("Manual", "", msg, 100)
 
-    # Empty: header only, buttons glued right below.
-    assert t.table.height() == hdr_h + frame
-    for i in range(3):  # the reported floating-buttons case
+    # Empty: 3-row floor.
+    assert t.table.height() == hdr_h + 3 * empty_row + frame
+    for i in range(3):
         add_one(i)
     row_h = t.table.rowHeight(0)
     assert t.table.height() == hdr_h + 3 * row_h + frame
     assert t.table.height() < t.TABLE_HEIGHT
+    add_one(3)
+    add_one(4)
+    assert t.table.height() == hdr_h + 5 * row_h + frame
     t.table.setCurrentCell(0, 0)
     assert t.remove_selected()
-    assert t.table.height() == hdr_h + 2 * row_h + frame
-    for i in range(3, 3 + t.MAX_ENTRIES):  # fill to cap
+    assert t.table.height() == hdr_h + 4 * row_h + frame
+    for i in range(5, 5 + t.MAX_ENTRIES):
         if not t.add_entry("Manual", "", can.Message(
                 arbitration_id=0x100 + i, data=[i],
                 is_extended_id=False), 100):
@@ -378,7 +382,6 @@ def test_dlc_defaults_to_eight(win):
 
 @pytest.mark.ui
 def test_dbc_signals_hidden_when_empty(win, qapp):
-    # isHidden (not isVisible: ancestor DBC tab starts unselected)
     assert win.dbc_signals.isHidden()
     assert win.dbc.load(DBC_PATH) == 2
     win._rebuild_signal_editors("ControlCmd")
@@ -395,18 +398,20 @@ def test_status_table_hugs_content(win, qapp):
     t = win.status_table
     qapp.processEvents()
     base = t.width()
-    assert base < 600  # airy card, not full tab width
-    assert t.height() < 120  # header + single row, no phantom rows
-    # Columns carry 50% extra air over content width (same formula as code).
+    assert base < 600
+    assert t.height() < 120
+    win._status()
     t.resizeColumnsToContents()
-    expected = 2 * t.frameWidth() + sum(
-        int(t.columnWidth(c) * 1.5) for c in range(t.columnCount()))
-    assert base == expected
+    want = [int(t.columnWidth(c) * 1.5) for c in range(t.columnCount())]
+    expected = 2 * t.frameWidth() + sum(want)
+    win._status()
+    assert [t.columnWidth(c) for c in range(t.columnCount())] == want
+    assert t.width() == expected
     win.rx_count, win.tx_count = 12345678, 87654321
     win._status()
     qapp.processEvents()
-    assert t.width() >= base  # tracks growing counters
-    assert t.horizontalScrollBar().maximum() == 0  # never clips
+    assert t.width() >= base
+    assert t.horizontalScrollBar().maximum() == 0
 
 
 @pytest.mark.trace
@@ -421,10 +426,10 @@ def test_timestamp_delta_is_per_id_inter_arrival(win):
                      "arb_id": arb, "dlc": 1, "data": bytes([0])})
     ts = COLUMNS.index("Timestamp")
     t0 = 1758982341.0
-    rx(0x123, t0)            # first sighting: no interval yet
-    rx(0x124, t0 + 5.0)      # other ID: own key, also first sighting
-    rx(0x123, t0 + 0.1)      # same ID 100ms later
-    rx(0x123, t0 + 0.3005)   # same ID 200.5ms later
+    rx(0x123, t0)
+    rx(0x124, t0 + 5.0)
+    rx(0x123, t0 + 0.1)
+    rx(0x123, t0 + 0.3005)
     got = [win.table.item(r, ts).text() for r in range(4)]
     assert all(re.fullmatch(r"\d+\.\d{6}", v) for v in got)
     assert got[0] == "0.000000"
@@ -454,7 +459,7 @@ def test_timestamp_absolute_is_wall_clock(win):
     import re
     win.view.setCurrentText("Raw")
     win.ts_mode.setCurrentText("Absolute")
-    win._append({"timestamp": 12.5,  # bus/uptime junk must not leak through
+    win._append({"timestamp": 12.5,
                  "local_ts": 1758982341.5,
                  "channel": "ch", "direction": "RX", "extended": False,
                  "arb_id": 0x123, "dlc": 1, "data": bytes([0])})
@@ -473,7 +478,7 @@ def test_setup_dialog_compact_and_aligned(win, qapp):
     dlg = SetupDialog(win, "virtual", "test", 500000, False)
     try:
         assert dlg.minimumWidth() == 460
-        assert dlg.minimumHeight() == 300
+        assert dlg.minimumHeight() == 0
         assert dlg.lbl_devices.alignment() & Qt.AlignTop
     finally:
         dlg.close()
@@ -509,7 +514,6 @@ def test_failed_open_keeps_start_enabled(win, qapp, monkeypatch):
         mock.Mock(critical=mock.Mock(side_effect=boom),
                   information=mock.Mock(side_effect=boom),
                   warning=mock.Mock(side_effect=boom)))
-    # Failure path must not pop modals and must leave stopped-state buttons.
     monkeypatch.setattr("main_window.open_bus",
                         mock.Mock(side_effect=RuntimeError("no bus")))
     with pytest.raises(AssertionError):

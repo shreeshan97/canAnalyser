@@ -52,8 +52,10 @@ Trace columns: Index 40, Timestamp 160, Channel 75, RX/TX 50, Type 50,
 ID 70, Sender 75, DLC 40, Data Fixed 220, Name Interactive (default 140),
 Decoded Stretch, Comment Interactive (default 130).
 Window 1280x950 at (200,30), min 1000x650; bottom dock cap 350;
-entry tables hug rows (cap 204); status card hugs content with x1.5 width;
-Setup dialog min 460x300, Devices label top-aligned.
+entry tables hug rows with a 3-row floor (cap 204); status card hugs
+content with x1.5 width baked into Interactive columns;
+Setup dialog min width 460 (height follows content), Devices label
+top-aligned.
 Timestamps: Delta = per-(ID,direction) inter-arrival, `.6f`, first sighting
 `0.000000` (`_last_seen`, cleared on Clear); Absolute = local wall-clock
 `HH:MM:SS.ffffff`. Manual TX defaults: DLC 8, eight `00` bytes.
@@ -70,6 +72,9 @@ TX Send/Cyclic/entry buttons intentionally stay enabled while stopped
 - Commits use `git -c user.name="Shreesha SN" -c user.email=...`; terse
   imperative subjects. Commit only when asked.
 - Don't reference product names in code/docs; no CANGaroo references.
+- No debug comments in code: no change-narration remarks (`# hug ...`,
+  `# collapse ...`, `# track ...`), no commented-out code, no `print`.
+  Docstrings that document behavior are fine.
 
 ## Open questions (ask the user before implementing)
 

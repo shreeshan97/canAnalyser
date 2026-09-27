@@ -28,11 +28,11 @@ def test_csv_headers_and_rows(tmp_path):
     assert lines[0] == ",".join(COLS + ["Epoch"])
     assert "EngineData" in lines[1]
     cells = lines[1].split(",")
-    ts_cell = cells[COLS.index("Timestamp")]  # wall-clock, not display mode
+    ts_cell = cells[COLS.index("Timestamp")]
     assert re.fullmatch(r"\d{2}:\d{2}:\d{2}\.\d{6}", ts_cell)
     assert ts_cell == datetime.datetime.fromtimestamp(123.456).strftime(
         "%H:%M:%S.%f")
-    assert cells[-1] == "123.456000"  # numeric epoch
+    assert cells[-1] == "123.456000"
     assert len(lines) == 3
 
 
@@ -45,4 +45,4 @@ def test_asc_format(tmp_path):
     txt = open(p).read()
     assert txt.startswith("date ")
     assert "123#0019" in txt
-    assert "(123.4560)" in txt  # ts_local epoch, not ts_bus uptime
+    assert "(123.4560)" in txt

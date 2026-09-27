@@ -37,7 +37,7 @@ class SetupDialog(QDialog):
     def __init__(self, parent, backend, channel, bitrate, loop_back):
         super().__init__(parent)
         self.setWindowTitle("Setup Interface")
-        self.setMinimumSize(460, 300)
+        self.setMinimumWidth(460)
         self.backend = QComboBox()
         self.backend.addItems(["candle", "virtual", "socketcan"])
         self.backend.setCurrentText(backend)
@@ -96,7 +96,7 @@ class EntryTable(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.itemChanged.connect(self._item_changed)
-        self._fit_table_height()  # hug rows; button bar stays glued below
+        self._fit_table_height()
         lay.addWidget(self.table)
         lay.addSpacing(4)
         btns = QHBoxLayout()
@@ -144,12 +144,14 @@ class EntryTable(QWidget):
         return True
 
     def _fit_table_height(self):
-        """Hug the rows (header + n x row + frame), capped at TABLE_HEIGHT:
-        the button bar never floats, and full tables scroll internally."""
+        """Hug the rows (header + n x row + frame), floored at 3 empty rows
+        so the table reads as a table even with no entries, capped at
+        TABLE_HEIGHT: the button bar never floats, full tables scroll."""
         n = self.table.rowCount()
-        row_h = self.table.rowHeight(0) if n else 0
+        row_h = (self.table.rowHeight(0) if n
+                 else self.table.verticalHeader().defaultSectionSize())
         h = (self.table.horizontalHeader().sizeHint().height()
-             + n * row_h + 2 * self.table.frameWidth())
+             + max(n, 3) * row_h + 2 * self.table.frameWidth())
         self.table.setFixedHeight(min(h, self.TABLE_HEIGHT))
 
     def selected(self):
@@ -463,7 +465,7 @@ class MainWindow(QMainWindow):
         lay.addLayout(top)
         self.dbc_signals = QWidget()
         self.dbc_sig_layout = QFormLayout(self.dbc_signals)
-        self.dbc_signals.setVisible(False)  # shown once signal rows exist
+        self.dbc_signals.setVisible(False)
         lay.addWidget(self.dbc_signals)
         return w
 
@@ -474,7 +476,7 @@ class MainWindow(QMainWindow):
         self.status_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.status_table.verticalHeader().setVisible(False)
         self.status_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeToContents)
+            QHeaderView.Interactive)
         self.status_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.status_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         w = QWidget()
@@ -485,19 +487,23 @@ class MainWindow(QMainWindow):
         top.addStretch(1)
         lay.addLayout(top)
         lay.addStretch(1)
-        self._fit_status_table()  # hug content: no dead grid, no clipping
+        self._fit_status_table()
         return w
 
     def _fit_status_table(self):
         """Pin the status table's outer rect to its content width/height.
 
-        Columns get 50% extra air (width only); height stays header + row.
+        Columns get 50% extra air (width only) baked into the columns
+        themselves, so no dead column trails after Err; height stays
+        header + row.
         """
         t = self.status_table
         t.resizeColumnsToContents()
         w = 2 * t.frameWidth()
         for c in range(t.columnCount()):
-            w += int(t.columnWidth(c) * 1.5)
+            cw = int(t.columnWidth(c) * 1.5)
+            t.setColumnWidth(c, cw)
+            w += cw
         h = (t.horizontalHeader().sizeHint().height() + t.rowHeight(0)
              + 2 * t.frameWidth())
         t.setFixedSize(w, h)
@@ -593,7 +599,7 @@ class MainWindow(QMainWindow):
         a = QAction("Stop All Entries (this tab)", self)
         a.triggered.connect(self._stop_all_visible)
         gen.addAction(a)
-        self._sync_bus_buttons()  # initial stopped state incl. menu acts
+        self._sync_bus_buttons()
 
     def _start_all_visible(self):
         if self.bus is None:
@@ -687,7 +693,7 @@ class MainWindow(QMainWindow):
         while self.dbc_sig_layout.rowCount():
             self.dbc_sig_layout.removeRow(0)
         self.sig_editors = {}
-        self.dbc_signals.setVisible(False)  # collapse gap when nothing to edit
+        self.dbc_signals.setVisible(False)
         if not name:
             return
         msg = self.dbc.get_message(name)
@@ -812,7 +818,7 @@ class MainWindow(QMainWindow):
                                str(self.rx_count), str(self.tx_count),
                                str(self.err_count)]):
             self.status_table.setItem(0, c, QTableWidgetItem(v))
-        self._fit_status_table()  # track growing counters, never clip
+        self._fit_status_table()
 
     def _decode_info(self, arb_id, data: bytes):
         sender = self.dbc.sender_of(arb_id)
