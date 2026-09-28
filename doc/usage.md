@@ -52,9 +52,9 @@ bash scripts/run.sh               # candle ch 0 @500k normal mode; add --loop-ba
   input row and above its transmissions table (per-row On checkbox and
   editable interval; Manual TX defaults to DLC 8; both tables show
   header + 4 rows then scroll at fixed 143px); DBC signals show in a
-  2-column grid with all rows visible (region grows, space taken from
-  the trace); CAN Status is a compact card hugging its content with 50%
-  column air (backend/channel/state/Rx/Tx/Err); Log (timestamped events).
+  the trace); CAN Status is a fixed 600px card (Backend 130, Channel
+  110, State 110, Rx/Tx 82, Err 84 — counts never reshape it); Log
+  (timestamped events).
 - Window opens 1280x950 on the cursor's screen (screen origin + 200,30); trace table
   Decoded column takes the stretch. Trace and bottom dock share a
   draggable vertical splitter with per-tab dock sizes auto-fit to content on

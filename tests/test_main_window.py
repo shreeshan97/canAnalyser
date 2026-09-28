@@ -546,23 +546,27 @@ def test_dbc_signals_hidden_when_empty(win, qapp):
 
 
 @pytest.mark.ui
-def test_status_table_hugs_content(win, qapp):
+def test_status_table_fixed_widths(win, qapp):
+    from PySide6.QtWidgets import QHeaderView
+
+    from main_window import STATUS_COLS, STATUS_WIDTHS
+    assert STATUS_WIDTHS == {"Backend": 130, "Channel": 110, "State": 110,
+                             "Rx": 82, "Tx": 82, "Err": 84}
     t = win.status_table
     qapp.processEvents()
-    base = t.width()
-    assert base < 600
+    hdr = t.horizontalHeader()
+    for c, col in enumerate(STATUS_COLS):
+        assert hdr.sectionResizeMode(c) == QHeaderView.Fixed
+        assert t.columnWidth(c) == STATUS_WIDTHS[col]
+    assert t.width() == 600
     assert t.height() < 120
-    win._status(force=True)
-    t.resizeColumnsToContents()
-    want = [int(t.columnWidth(c) * 1.5) for c in range(t.columnCount())]
-    expected = 2 * t.frameWidth() + sum(want)
-    win._status(force=True)
-    assert [t.columnWidth(c) for c in range(t.columnCount())] == want
-    assert t.width() == expected
     win.rx_count, win.tx_count = 12345678, 87654321
+    win.channel = "a-very-long-channel-name"
     win._status(force=True)
     qapp.processEvents()
-    assert t.width() >= base
+    for c, col in enumerate(STATUS_COLS):
+        assert t.columnWidth(c) == STATUS_WIDTHS[col]
+    assert t.width() == 600
     assert t.horizontalScrollBar().maximum() == 0
 
 

@@ -68,8 +68,9 @@ minimum height so a tall tab never props up the shared tab minimum
 other tabs; dock need is content + tab bar + live-measured chrome and
 lands exactly. The TX dock is collapsible to invisible via the
 splitter handle. Entry action bars sit directly after the ID/Message input
-rows above their tables; status card hugs content with x1.5 width baked
-into Interactive columns; DBC toolbar button toggles Load/Clear
+rows above their tables; status card is fixed 600 wide
+(`STATUS_WIDTHS`: Backend 130, Channel 110, State 110, Rx 82, Tx 82,
+Err 84 — growing counts never reshape it); DBC toolbar button toggles Load/Clear
 (`_sync_dbc_buttons()`; unload stops timers + deletes DBC entries only).
 Setup dialog min width 460 (height follows content), Devices label
 top-aligned.

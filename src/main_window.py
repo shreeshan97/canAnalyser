@@ -43,6 +43,10 @@ COL_WIDTHS = {"Index": 40, "RX/TX": 50, "Type": 50, "Channel": 75,
               "Data": 220}
 # User-draggable columns (Interactive) with their default widths.
 FLEX_WIDTHS = {"Name": 140, "Comment": 130}
+# Fixed CAN Status card: column widths (px), outer width 600.
+STATUS_COLS = ["Backend", "Channel", "State", "Rx", "Tx", "Err"]
+STATUS_WIDTHS = {"Backend": 130, "Channel": 110, "State": 110,
+                 "Rx": 82, "Tx": 82, "Err": 84}
 MAX_ROWS = 5000
 
 
@@ -671,13 +675,14 @@ class MainWindow(QMainWindow):
         return w
 
     def _status_tab(self):
-        self.status_table = QTableWidget(1, 6)
-        self.status_table.setHorizontalHeaderLabels(
-            ["Backend", "Channel", "State", "Rx", "Tx", "Err"])
+        self.status_table = QTableWidget(1, len(STATUS_COLS))
+        self.status_table.setHorizontalHeaderLabels(STATUS_COLS)
         self.status_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.status_table.verticalHeader().setVisible(False)
-        self.status_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.Interactive)
+        hdr = self.status_table.horizontalHeader()
+        for c, col in enumerate(STATUS_COLS):
+            hdr.setSectionResizeMode(c, QHeaderView.Fixed)
+            self.status_table.setColumnWidth(c, STATUS_WIDTHS[col])
         self.status_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.status_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         w = QWidget()
@@ -692,19 +697,11 @@ class MainWindow(QMainWindow):
         return w
 
     def _fit_status_table(self):
-        """Pin the status table's outer rect to its content width/height.
-
-        Columns get 50% extra air (width only) baked into the columns
-        themselves, so no dead column trails after Err; height stays
-        header + row.
-        """
+        """Pin the status table's outer rect: fixed 600px wide from
+        STATUS_WIDTHS, header + row high. Widths never refit, so growing
+        counts cannot reshape the card."""
         t = self.status_table
-        t.resizeColumnsToContents()
-        w = 2 * t.frameWidth()
-        for c in range(t.columnCount()):
-            cw = int(t.columnWidth(c) * 1.5)
-            t.setColumnWidth(c, cw)
-            w += cw
+        w = 2 * t.frameWidth() + sum(STATUS_WIDTHS.values())
         h = (t.horizontalHeader().sizeHint().height() + t.rowHeight(0)
              + 2 * t.frameWidth())
         t.setFixedSize(w, h)
