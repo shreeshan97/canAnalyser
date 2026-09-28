@@ -1,8 +1,9 @@
-import pytest
 """Unit tests: theme switching (offscreen)."""
-from PySide6.QtWidgets import QApplication
+import pytest
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QApplication, QPushButton
 
-from theme import apply_theme, detect_system_theme
+from theme import apply_theme
 
 
 @pytest.mark.theme
@@ -17,8 +18,6 @@ def test_themes(qapp):
 def test_dark_disabled_buttons_render_dimmer(qapp):
     """Regression: the dark palette once stamped full-bright colors into the
     Disabled group, so a greyed-out Start looked identical to enabled."""
-    from PySide6.QtGui import QColor
-    from PySide6.QtWidgets import QApplication, QPushButton
     app = QApplication.instance()
     apply_theme(app, "dark")
     qapp.processEvents()

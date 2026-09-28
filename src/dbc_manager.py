@@ -1,5 +1,4 @@
 """DBC wrapper around cantools: load, decode RX, encode TX."""
-from __future__ import annotations
 
 
 class DbcError(Exception):
@@ -39,33 +38,35 @@ class DbcManager:
         except KeyError:
             return None
 
-    def sender_of(self, arb_id: int) -> str:
+    def message_by_id(self, arb_id: int):
+        """Single O(1) lookup (cantools keeps a frame-ID index); None if
+        unloaded or unknown."""
         if not self.db:
+            return None
+        try:
+            return self.db.get_message_by_frame_id(arb_id)
+        except KeyError:
+            return None
+
+    def sender_of(self, arb_id: int) -> str:
+        m = self.message_by_id(arb_id)
+        if m is None or not m.senders:
             return ""
-        for m in self.db.messages:
-            if m.frame_id == arb_id and m.senders:
-                return ",".join(m.senders)
-        return ""
+        return ",".join(m.senders)
 
     def name_of(self, arb_id: int) -> str:
-        if not self.db:
-            return ""
-        for m in self.db.messages:
-            if m.frame_id == arb_id:
-                return m.name
-        return ""
+        m = self.message_by_id(arb_id)
+        return m.name if m is not None else ""
 
     def decode(self, arb_id: int, data: bytes) -> dict | None:
         """Return {signal: physical_value} or None if unknown/undecodable."""
-        if not self.db:
+        m = self.message_by_id(arb_id)
+        if m is None:
             return None
-        for m in self.db.messages:
-            if m.frame_id == arb_id:
-                try:
-                    return m.decode(bytes(data), decode_choices=False)
-                except Exception:  # noqa: BLE001
-                    return None
-        return None
+        try:
+            return m.decode(bytes(data), decode_choices=False)
+        except Exception:  # noqa: BLE001
+            return None
 
     def encode(self, name: str, values: dict) -> tuple[int, bytes]:
         m = self.get_message(name)

@@ -2,9 +2,11 @@
 import datetime
 import os
 import time
+from collections import deque
 
 import can
-from PySide6.QtCore import QPoint, QSize, QThread, QTimer, Qt
+from PySide6 import __version__ as _pyside_v
+from PySide6.QtCore import QPoint, QSize, QThread, QTimer, Qt, qVersion
 from PySide6.QtGui import QAction, QActionGroup, QCursor, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDialog, QDialogButtonBox, QCheckBox,
@@ -363,7 +365,7 @@ class MainWindow(QMainWindow):
         self.index = 0
         self._last_seen = {}  # (arb_id, direction) -> local_ts of previous frame
         self.agg = {}  # (arb_id, direction) -> row
-        self.records: list[dict] = []
+        self.records: deque = deque(maxlen=MAX_ROWS)
         self.rx_count = 0
         self.tx_count = 0
         self.err_count = 0
@@ -372,7 +374,7 @@ class MainWindow(QMainWindow):
         self._ts_delta = True
         self._view_agg = True
         self._filter_text = ""
-        self._last_status_fit = 0.0
+        self._last_status_push = 0.0
         self.dbc = DbcManager()
         self.sig_editors = {}
         self._last_decode_failed = False
@@ -867,18 +869,16 @@ class MainWindow(QMainWindow):
 
     # ---- theme ----
     def set_theme(self, mode: str):
-        from PySide6.QtWidgets import QApplication
         eff = apply_theme(QApplication.instance(), mode)
+        self._fit_status_table()  # row height may change with the theme
         self.log_msg(f"theme: {eff}")
 
     def about(self):
-        from PySide6 import __version__ as pyside_v
-        from PySide6.QtCore import qVersion
         QMessageBox.about(
             self, "About canAnalyser",
             f"<b>canAnalyser {VERSION}</b><br>"
             "CAN bus receiver + multi-message TX generator.<br><br>"
-            f"PySide {pyside_v}, Qt {qVersion()}<br>"
+            f"PySide {_pyside_v}, Qt {qVersion()}<br>"
             "Backend: python-can (candle FYSETC UCAN / virtual / socketcan), "
             "DBC via cantools.<br>"
             "License: GPL-2.0.")
@@ -1016,7 +1016,8 @@ class MainWindow(QMainWindow):
         self.log_msg(
             f"bus open: {self.backend} ch={self.channel} "
             f"{self.bitrate}bps loop_back={self.loop_back}")
-        self._status(force=True)
+        self._last_status_push = 0.0
+        self._status()
 
     def stop(self):
         self.stop_cyclic()
@@ -1037,7 +1038,8 @@ class MainWindow(QMainWindow):
         self.bus = None
         self._sync_bus_buttons()
         self.log_msg("bus closed")
-        self._status(prefix="stopped — ", force=True)
+        self._last_status_push = 0.0
+        self._status(prefix="stopped — ")
 
     def showEvent(self, event):  # noqa: N802
         super().showEvent(event)
@@ -1083,7 +1085,15 @@ class MainWindow(QMainWindow):
             self.log_msg(f"error frames on bus (total ERR={self.err_count})")
         self._status()
 
-    def _status(self, prefix="", force=False):
+    def _status(self, prefix=""):
+        """Push counts to the status bar + card, at most 5Hz: per-frame
+        showMessage/setItem is the dominant RX-path cost past ~1k fps.
+        start/stop/clear reset _last_status_push first so their state
+        change is always immediate."""
+        now = time.monotonic()
+        if now - self._last_status_push < 0.2:
+            return
+        self._last_status_push = now
         self.statusBar().showMessage(
             f"{prefix}RX={self.rx_count} TX={self.tx_count} ERR={self.err_count}")
         state = "ready" if self.bus else "stopped"
@@ -1091,22 +1101,22 @@ class MainWindow(QMainWindow):
                                str(self.rx_count), str(self.tx_count),
                                str(self.err_count)]):
             self.status_table.setItem(0, c, QTableWidgetItem(v))
-        now = time.monotonic()
-        if force or now - self._last_status_fit > 0.5:
-            self._last_status_fit = now
-            self._fit_status_table()
 
     def _decode_info(self, arb_id, data: bytes, channel: str):
         if not self.dbc.loaded:
             return channel, "", ""
-        sender = self.dbc.sender_of(arb_id)
-        name = self.dbc.name_of(arb_id)
-        sig = self.dbc.decode(arb_id, data)
-        if sig is None:
-            self._last_decode_failed = bool(name)
-            return sender or channel, name, ""
+        m = self.dbc.message_by_id(arb_id)
+        if m is None:
+            self._last_decode_failed = False
+            return channel, "", ""
+        sender = ",".join(m.senders) if m.senders else channel
+        try:
+            sig = m.decode(bytes(data), decode_choices=False)
+        except Exception:  # noqa: BLE001
+            self._last_decode_failed = True
+            return sender, m.name, ""
         self._last_decode_failed = False
-        return sender or channel, name, DbcManager.fmt_signals(sig)
+        return sender, m.name, DbcManager.fmt_signals(sig)
 
     def _append(self, fr: dict):
         local = fr.get("local_ts") or fr["timestamp"] or time.time()
@@ -1137,8 +1147,6 @@ class MainWindow(QMainWindow):
         if not self._matches_rec(rec):
             return
         self.records.append(rec)
-        if len(self.records) > MAX_ROWS:
-            self.records.pop(0)
         if fr["direction"] == "RX":
             self.rx_count += 1
         else:
@@ -1193,7 +1201,8 @@ class MainWindow(QMainWindow):
         self._last_seen.clear()
         self.rx_count = self.tx_count = self.err_count = 0
         self._tx_fail = {"manual": 0, "dbc": 0}
-        self._status(force=True)
+        self._last_status_push = 0.0
+        self._status()
 
     # ---- TX path (manual) ----
     def _current_tx(self):
@@ -1222,7 +1231,8 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "TX failed", str(e))
             return False
         self._tx_fail[source] = 0
-        self._append({"timestamp": time.time(), "local_ts": time.time(),
+        now = time.time()
+        self._append({"timestamp": now, "local_ts": now,
                       "channel": self.channel_label(),
                       "direction": "TX", "extended": msg.is_extended_id,
                       "arb_id": msg.arbitration_id, "dlc": len(msg.data),

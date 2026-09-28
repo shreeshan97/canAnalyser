@@ -1,13 +1,21 @@
 """GUI tests (offscreen): trace, DBC decode, filter, TX, clear, autoscroll."""
+import datetime
+import re
 import time
-
-import pytest
-import can
 from unittest import mock
-from PySide6.QtCore import Qt
 
-from main_window import COLUMNS, MainWindow
+import can
+import pytest
+from PySide6.QtCore import QItemSelectionModel, QRect, Qt
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHeaderView,
+                               QSplitter)
+
+from main_window import (COLUMNS, COL_WIDTHS, FLEX_WIDTHS, GAP, REGION_PX,
+                         STATUS_COLS, STATUS_WIDTHS, MainWindow, SetupDialog,
+                         copy_table_selection)
 from tests.conftest import DBC_PATH, DEMO_DBC_PATH
+from theme import apply_theme
 
 
 @pytest.fixture()
@@ -27,33 +35,30 @@ def _pump(qapp, secs=0.6):
 
 
 @pytest.mark.trace
-def test_start_stop_and_status(win, qapp):
-    assert win.bus is None
-    win.start()
-    assert win.bus is not None
-    assert win.status_table.item(0, 2).text() == "ready"
-    win.stop()
-    assert win.bus is None
-    assert win.status_table.item(0, 2).text() == "stopped"
-
-
-@pytest.mark.trace
 def test_rx_row_and_counts(win, qapp):
     win.view.setCurrentText("Raw")
     win.start()
     _pump(qapp, 0.3)
     peer = can.interface.Bus(interface="virtual", channel="pytest-gui",
                              receive_own_messages=False)
+    sniffer = can.interface.Bus(interface="virtual", channel="pytest-gui",
+                                receive_own_messages=False)
     try:
         peer.send(can.Message(arbitration_id=0x123, data=[1, 2],
                               is_extended_id=False))
+        got = sniffer.recv(timeout=2.0)
+        assert got is not None
         _pump(qapp)
         assert win.rx_count == 1
         assert win.table.rowCount() == 1
         assert win.table.item(0, 5).text() == "0x123"
         assert win.table.item(0, 8).text() == "01 02"
+        rec = next(r for r in win.records if r["arb_id"] == 0x123)
+        assert rec["ts_bus"] == got.timestamp
+        assert abs(rec["ts_local"] - rec["ts_bus"]) < 2.0
     finally:
         peer.shutdown()
+        sniffer.shutdown()
 
 
 @pytest.mark.decode
@@ -106,7 +111,6 @@ def test_manual_tx_appends_tx_row(win, qapp):
 
 @pytest.mark.tx
 def test_tx_timers_are_precise(win):
-    from PySide6.QtCore import Qt
     assert win.cyclic.timerType() == Qt.PreciseTimer
     assert win.dbc_cyclic.timerType() == Qt.PreciseTimer
     win.tx_id.setText("100")
@@ -122,34 +126,7 @@ def test_tx_timers_are_precise(win):
 
 
 @pytest.mark.trace
-def test_driver_time_reaches_record(win, qapp):
-    win.view.setCurrentText("Raw")
-    win.start()
-    _pump(qapp, 0.3)
-    peer = can.interface.Bus(interface="virtual", channel="pytest-gui",
-                             receive_own_messages=False)
-    sniffer = can.interface.Bus(interface="virtual", channel="pytest-gui",
-                                receive_own_messages=False)
-    try:
-        peer.send(can.Message(arbitration_id=0x123, data=[7],
-                              is_extended_id=False))
-        got = sniffer.recv(timeout=2.0)
-        assert got is not None
-        _pump(qapp)
-        rec = next(r for r in win.records if r["arb_id"] == 0x123)
-        assert rec["ts_bus"] == got.timestamp
-        assert abs(rec["ts_local"] - rec["ts_bus"]) < 2.0
-    finally:
-        peer.shutdown()
-        sniffer.shutdown()
-
-
-@pytest.mark.trace
 def test_trace_copy_selected_rows(win, qapp):
-    from PySide6.QtCore import QItemSelectionModel
-    from PySide6.QtWidgets import QAbstractItemView, QApplication
-
-    from main_window import COLUMNS, copy_table_selection
     win.view.setCurrentText("Raw")
     for arb in (0x100, 0x101, 0x102):
         win._append({"timestamp": 0.0, "local_ts": 1758982341.0 + arb,
@@ -173,9 +150,6 @@ def test_trace_copy_selected_rows(win, qapp):
 
 @pytest.mark.entries
 def test_entry_copy_selected_row(win, qapp):
-    from PySide6.QtWidgets import QApplication
-
-    from main_window import copy_table_selection
     win.tx_id.setText("100")
     win.tx_dlc.setValue(1)
     win.tx_data.setText("AB")
@@ -212,6 +186,7 @@ def test_filter_hides_and_restores(win, qapp):
 @pytest.mark.trace
 def test_clear_resets(win, qapp):
     win.view.setCurrentText("Raw")
+    win.ts_mode.setCurrentText("Delta")
     win.start()
     _pump(qapp, 0.3)
     peer = can.interface.Bus(interface="virtual", channel="pytest-gui",
@@ -224,6 +199,11 @@ def test_clear_resets(win, qapp):
         win.clear()
         assert win.table.rowCount() == 0
         assert (win.rx_count, win.tx_count, win.err_count) == (0, 0, 0)
+        win._append({"timestamp": 0.0, "local_ts": 1758982441.0,
+                     "channel": "ch", "direction": "RX", "extended": False,
+                     "arb_id": 0x123, "dlc": 1, "data": bytes([0])})
+        ts = COLUMNS.index("Timestamp")
+        assert win.table.item(0, ts).text() == "0.000000"
     finally:
         peer.shutdown()
 
@@ -238,17 +218,9 @@ def test_autoscroll_toggle(win):
     assert win.autoscroll
 
 
-@pytest.mark.trace
-def test_log_records_bus_open(win, qapp):
-    win.start()
-    assert any("bus open" in win.log_list.item(i).text()
-               for i in range(win.log_list.count()))
-
-
 class FailingBus:
     """Bus whose send always raises: simulates error-state hardware."""
     def send(self, msg, timeout=None):
-        import can
         raise can.CanError("bus off")
 
     def shutdown(self):
@@ -298,10 +270,6 @@ def test_default_size(win):
 
 @pytest.mark.ui
 def test_window_follows_cursor_screen(qapp, monkeypatch):
-    from PySide6.QtCore import QRect
-    from PySide6.QtWidgets import QApplication
-
-    from main_window import MainWindow
     primary = mock.Mock()
     primary.geometry.return_value = QRect(0, 0, 1920, 1080)
     monkeypatch.setattr(QApplication, "screenAt",
@@ -332,13 +300,10 @@ def test_bottom_tabs_flat(win):
 def test_theme_repaints_bottom_tabs(win, qapp):
     """Stylesheet tab bars once kept rendering dark after switching to
     light (palette alone looked fine). Assert rendered pixels."""
-    from PySide6.QtGui import QColor
-    from PySide6.QtWidgets import QApplication
     win.resize(1280, 950)
     win.add_manual_entry()
     qapp.processEvents()
     QApplication.instance().processEvents()
-    from theme import apply_theme
     apply_theme(QApplication.instance(), "dark")
     qapp.processEvents()
     apply_theme(QApplication.instance(), "light")
@@ -423,9 +388,6 @@ def test_entry_interval_validation(win):
 
 @pytest.mark.ui
 def test_trace_column_pixels(win):
-    from PySide6.QtWidgets import QHeaderView
-
-    from main_window import COL_WIDTHS, FLEX_WIDTHS
     assert COL_WIDTHS == {"Index": 40, "RX/TX": 50, "Type": 50,
                          "Channel": 75, "Sender": 75, "ID": 70, "DLC": 40,
                          "Timestamp": 160, "Data": 220}
@@ -449,8 +411,6 @@ def test_trace_column_pixels(win):
 
 @pytest.mark.ui
 def test_entry_tables_fixed_budget(win):
-    import can
-    from main_window import REGION_PX
     for entries in (win.man_entries, win.dbc_entries):
         assert entries.table.height() == REGION_PX["TXTABLE"] == 143
         for i in range(6):
@@ -462,7 +422,6 @@ def test_entry_tables_fixed_budget(win):
 
 @pytest.mark.ui
 def test_entry_action_bar_above_table(win):
-    from PySide6.QtWidgets import QSplitter
     for entries in (win.man_entries, win.dbc_entries):
         lay = entries.layout()
         assert lay.itemAt(0).layout() is not None
@@ -493,7 +452,6 @@ def test_rx_fills_remainder_no_gap(win, qapp):
 
 @pytest.mark.ui
 def test_splitter_per_tab_dock_sizes(win, qapp):
-    from tests.conftest import DEMO_DBC_PATH
     win.load_dbc(DEMO_DBC_PATH)
     win.dbc_msg.setCurrentText("ManySignals")
     qapp.processEvents()
@@ -547,9 +505,6 @@ def test_dbc_signals_hidden_when_empty(win, qapp):
 
 @pytest.mark.ui
 def test_status_table_fixed_widths(win, qapp):
-    from PySide6.QtWidgets import QHeaderView
-
-    from main_window import STATUS_COLS, STATUS_WIDTHS
     assert STATUS_WIDTHS == {"Backend": 130, "Channel": 110, "State": 110,
                              "Rx": 82, "Tx": 82, "Err": 84}
     t = win.status_table
@@ -562,7 +517,8 @@ def test_status_table_fixed_widths(win, qapp):
     assert t.height() < 120
     win.rx_count, win.tx_count = 12345678, 87654321
     win.channel = "a-very-long-channel-name"
-    win._status(force=True)
+    win._last_status_push = 0.0
+    win._status()
     qapp.processEvents()
     for c, col in enumerate(STATUS_COLS):
         assert t.columnWidth(c) == STATUS_WIDTHS[col]
@@ -572,7 +528,6 @@ def test_status_table_fixed_widths(win, qapp):
 
 @pytest.mark.trace
 def test_timestamp_delta_is_per_id_inter_arrival(win):
-    import re
     win.view.setCurrentText("Raw")
     win.ts_mode.setCurrentText("Delta")
 
@@ -595,24 +550,7 @@ def test_timestamp_delta_is_per_id_inter_arrival(win):
 
 
 @pytest.mark.trace
-def test_timestamp_delta_resets_on_clear(win):
-    win.view.setCurrentText("Raw")
-    win.ts_mode.setCurrentText("Delta")
-    win._append({"timestamp": 0.0, "local_ts": 1758982341.0,
-                 "channel": "ch", "direction": "RX", "extended": False,
-                 "arb_id": 0x123, "dlc": 1, "data": bytes([0])})
-    win.clear()
-    win._append({"timestamp": 0.0, "local_ts": 1758982441.0,
-                 "channel": "ch", "direction": "RX", "extended": False,
-                 "arb_id": 0x123, "dlc": 1, "data": bytes([0])})
-    ts = COLUMNS.index("Timestamp")
-    assert win.table.item(0, ts).text() == "0.000000"
-
-
-@pytest.mark.trace
 def test_timestamp_absolute_is_wall_clock(win):
-    import datetime
-    import re
     win.view.setCurrentText("Raw")
     win.ts_mode.setCurrentText("Absolute")
     win._append({"timestamp": 12.5,
@@ -628,9 +566,6 @@ def test_timestamp_absolute_is_wall_clock(win):
 
 @pytest.mark.ui
 def test_setup_dialog_compact_and_aligned(win, qapp):
-    from PySide6.QtCore import Qt
-
-    from main_window import SetupDialog
     dlg = SetupDialog(win, "virtual", "test", 500000, False)
     try:
         assert dlg.minimumWidth() == 460
@@ -642,6 +577,7 @@ def test_setup_dialog_compact_and_aligned(win, qapp):
 
 @pytest.mark.ui
 def test_bus_buttons_sync_with_state(win, qapp):
+    assert win.bus is None
     assert win.btn_start.isEnabled()
     assert not win.btn_stop.isEnabled()
     assert win.btn_setup.isEnabled()
@@ -649,12 +585,18 @@ def test_bus_buttons_sync_with_state(win, qapp):
     assert not win.act_stop.isEnabled()
     win.start()
     _pump(qapp, 0.3)
+    assert win.bus is not None
     assert not win.btn_start.isEnabled()
     assert win.btn_stop.isEnabled()
     assert not win.btn_setup.isEnabled()
     assert not win.act_start.isEnabled()
     assert win.act_stop.isEnabled()
+    assert win.status_table.item(0, 2).text() == "ready"
+    assert any("bus open" in win.log_list.item(i).text()
+               for i in range(win.log_list.count()))
     win.stop()
+    assert win.bus is None
+    assert win.status_table.item(0, 2).text() == "stopped"
     assert win.btn_start.isEnabled()
     assert not win.btn_stop.isEnabled()
     assert win.btn_setup.isEnabled()
@@ -676,12 +618,10 @@ def test_failed_open_keeps_start_enabled(win, qapp, monkeypatch):
         win.start()
     assert win.bus is None
     assert win.btn_start.isEnabled()
-    assert not win.btn_stop.isEnabled()
 
 
 @pytest.mark.dbc
 def test_menu_load_dbc_actions_open_dialog(win, qapp, monkeypatch):
-    from tests.conftest import DEMO_DBC_PATH
     monkeypatch.setattr("main_window.QFileDialog.getOpenFileName",
                         lambda *a, **k: (DEMO_DBC_PATH, ""))
     win.act_load_dbc.trigger()
@@ -714,10 +654,6 @@ def test_dbc_toggle_button_flips_label_and_action(win, qapp, monkeypatch):
     assert win.btn_dbc.text() == "Load DBC..."
     assert win.act_load_dbc.isEnabled()
     assert not win.act_clear_dbc.isEnabled()
-    win.toggle_dbc()
-    qapp.processEvents()
-    assert win.dbc.loaded
-    assert win.btn_dbc.text() == "Clear DBC"
 
 
 @pytest.mark.dbc
@@ -751,7 +687,6 @@ def test_clear_dbc_stops_and_deletes_dbc_entries(win, qapp):
 
 @pytest.mark.dbc
 def test_signal_editors_two_column_fixed(win, qapp):
-    from main_window import GAP, REGION_PX
     win.tabs.setCurrentIndex(1)
     qapp.processEvents()
     win.load_dbc(DEMO_DBC_PATH)

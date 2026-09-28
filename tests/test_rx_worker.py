@@ -1,6 +1,6 @@
-import pytest
 """Unit tests: RxWorker drops firmware TX-echoes and error frames."""
 import can
+import pytest
 
 from rx_worker import RxWorker
 

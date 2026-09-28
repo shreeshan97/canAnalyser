@@ -1,5 +1,9 @@
-import pytest
 """Unit tests: CSV and ASC exporters."""
+import datetime
+import re
+
+import pytest
+
 from exporter import export_asc, export_csv
 
 
@@ -20,8 +24,6 @@ COLS = ["Index", "Timestamp", "Channel", "RX/TX", "Type", "ID", "Sender",
 
 @pytest.mark.exporter
 def test_csv_headers_and_rows(tmp_path):
-    import datetime
-    import re
     p = str(tmp_path / "t.csv")
     assert export_csv(p, COLS, [_rec(), _rec(index=2)]) == 2
     lines = open(p).read().splitlines()
