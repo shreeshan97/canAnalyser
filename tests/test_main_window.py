@@ -363,18 +363,16 @@ def test_trace_column_pixels(win):
 
 
 @pytest.mark.ui
-def test_entry_tables_pin_to_visible_rows(win):
+def test_entry_tables_fixed_budget(win):
     import can
-    for entries, visible in ((win.man_entries, 4), (win.dbc_entries, 3)):
-        hdr_h = entries.table.horizontalHeader().sizeHint().height()
-        frame = 2 * entries.table.frameWidth()
-        row_h = entries.table.verticalHeader().defaultSectionSize()
-        assert entries.table.height() == hdr_h + visible * row_h + frame
-        for i in range(visible + 2):
+    from main_window import REGION_PX
+    for entries in (win.man_entries, win.dbc_entries):
+        assert entries.table.height() == REGION_PX["TXTABLE"] == 143
+        for i in range(6):
             msg = can.Message(arbitration_id=0x100 + i, data=[i],
                               is_extended_id=False)
             assert entries.add_entry("Manual", "", msg, 100)
-        assert entries.table.height() == hdr_h + visible * row_h + frame
+        assert entries.table.height() == 143
 
 
 @pytest.mark.ui
@@ -391,6 +389,24 @@ def test_entry_action_bar_above_table(win):
 
 
 @pytest.mark.ui
+def test_autoscroll_after_timestamps(win):
+    central = win.centralWidget().layout()
+    top = central.itemAt(0).layout()
+    top_widgets = [top.itemAt(i).widget() for i in range(top.count())]
+    filt = central.itemAt(1).layout()
+    order = [filt.itemAt(i).widget() for i in range(filt.count())]
+    assert win.btn_autoscroll not in top_widgets
+    assert order.index(win.btn_autoscroll) == order.index(win.ts_mode) + 1
+
+
+@pytest.mark.ui
+def test_rx_fills_remainder_no_gap(win, qapp):
+    qapp.processEvents()
+    filled = sum(win.split.sizes()) + win.split.handleWidth()
+    assert abs(filled - win.split.height()) <= 2
+
+
+@pytest.mark.ui
 def test_splitter_per_tab_dock_sizes(win, qapp):
     from tests.conftest import DEMO_DBC_PATH
     win.load_dbc(DEMO_DBC_PATH)
@@ -399,12 +415,23 @@ def test_splitter_per_tab_dock_sizes(win, qapp):
     win.tabs.setCurrentIndex(0)
     qapp.processEvents()
     man_dock = win.split.sizes()[1]
+    assert man_dock == win._dock_need(0)
+    assert man_dock < 300
     win.tabs.setCurrentIndex(1)
     qapp.processEvents()
     dbc_dock = win.split.sizes()[1]
+    assert dbc_dock == win._dock_need(1)
     assert dbc_dock > man_dock
-    assert man_dock < 300
-    assert dbc_dock <= 350
+    total = sum(win.split.sizes())
+    assert dbc_dock <= int(total * 0.65) + 1
+    win.tabs.setCurrentIndex(0)
+    qapp.processEvents()
+    assert win.split.sizes()[1] == man_dock
+    win.clear_dbc()
+    qapp.processEvents()
+    win.tabs.setCurrentIndex(1)
+    qapp.processEvents()
+    assert win.split.sizes()[1] == win._dock_need(1) < dbc_dock
     frozen = win.split.sizes()[1]
     win.tabs.setCurrentIndex(2)
     qapp.processEvents()
@@ -422,15 +449,15 @@ def test_dlc_defaults_to_eight(win):
 
 @pytest.mark.ui
 def test_dbc_signals_hidden_when_empty(win, qapp):
-    assert win.dbc_sig_scroll.isHidden()
+    assert win.dbc_sig_region.isHidden()
     assert win.dbc.load(DBC_PATH) == 2
     win._rebuild_signal_editors("ControlCmd")
     qapp.processEvents()
-    assert not win.dbc_sig_scroll.isHidden()
-    assert win.dbc_sig_layout.rowCount() > 0
+    assert not win.dbc_sig_region.isHidden()
+    assert win.dbc_sig_grid.rowCount() > 0
     win._rebuild_signal_editors("")
     qapp.processEvents()
-    assert win.dbc_sig_scroll.isHidden()
+    assert win.dbc_sig_region.isHidden()
 
 
 @pytest.mark.ui
@@ -608,7 +635,7 @@ def test_clear_dbc_stops_and_deletes_dbc_entries(win, qapp):
     assert not win.dbc_msg.isEnabled()
     assert win.dbc_dlc.text() == "DLC: -"
     assert win.sig_editors == {}
-    assert win.dbc_sig_scroll.isHidden()
+    assert win.dbc_sig_region.isHidden()
     assert win.dbc_entries.entries == []
     assert win.dbc_entries.table.rowCount() == 0
     assert len(win.man_entries.entries) == 1
@@ -619,17 +646,22 @@ def test_clear_dbc_stops_and_deletes_dbc_entries(win, qapp):
 
 
 @pytest.mark.dbc
-def test_signal_editors_scroll_cap(win, qapp):
+def test_signal_editors_two_column_fixed(win, qapp):
+    from main_window import GAP, REGION_PX
     win.tabs.setCurrentIndex(1)
     qapp.processEvents()
     win.load_dbc(DEMO_DBC_PATH)
-    win.dbc_msg.setCurrentText("ManySignals")
-    qapp.processEvents()
-    assert win.dbc_sig_layout.rowCount() == 9
-    unit = win.dbc_interval.sizeHint().height()
-    assert win.dbc_sig_scroll.maximumHeight() < 9 * unit
-    h = win.dbc_entries.table.height()
-    hdr_h = win.dbc_entries.table.horizontalHeader().sizeHint().height()
-    frame = 2 * win.dbc_entries.table.frameWidth()
-    row_h = win.dbc_entries.table.verticalHeader().defaultSectionSize()
-    assert h == hdr_h + 3 * row_h + frame
+    for name in ("ControlCmd", "EngineData", "ManySignals"):
+        win.dbc_msg.setCurrentText(name)
+        qapp.processEvents()
+        signals = len(win.dbc.get_message(name).signals)
+        cols = REGION_PX["SIGCOLS"]
+        rows = (signals + cols - 1) // cols
+        assert len(win.sig_editors) == signals
+        for i, box in enumerate(win.sig_editors.values()):
+            r, c, _rs, _cs = win.dbc_sig_grid.getItemPosition(
+                win.dbc_sig_grid.indexOf(box))
+            er, ec = divmod(i, cols)
+            assert (r, c) == (er, 2 * ec + 1)
+        assert win.dbc_sig_region.height() == (
+            rows * REGION_PX["SIGROW"] + (rows - 1) * GAP)

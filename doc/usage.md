@@ -44,14 +44,15 @@ bash scripts/run.sh               # candle ch 0 @500k normal mode; add --loop-ba
   Absolute = local wall-clock 24h with microseconds (`HH:MM:SS.ffffff`,
   wraps at midnight).
 - Filter matches ID hex, data hex, or DBC name/signal text.
-- Autoscroll toggle (toolbar + View menu, default ON).
+- Autoscroll toggle (filter row + View menu, default ON).
 - Bottom tabs: Manual Gen and DBC Gen, each with its
   action bar (Add/Remove/Send/Start/Stop) directly after the ID/Message
   input row and above its transmissions table (per-row On checkbox and
-  editable interval; Manual TX defaults to DLC 8; Manual shows 4 rows
-  then scrolls, DBC 3 rows then scrolls); CAN Status is a compact card
-  CAN Status is a compact card hugging its content with 50% column air
-  (backend/channel/state/Rx/Tx/Err); Log (timestamped events).
+  editable interval; Manual TX defaults to DLC 8; both tables show
+  header + 4 rows then scroll at fixed 143px); DBC signals show in a
+  2-column grid with all rows visible (region grows, space taken from
+  the trace); CAN Status is a compact card hugging its content with 50%
+  column air (backend/channel/state/Rx/Tx/Err); Log (timestamped events).
 - Window opens 1280x950 on the cursor's screen (screen origin + 200,30); trace table
   Decoded column takes the stretch. Trace and bottom dock share a
   draggable vertical splitter with per-tab dock sizes auto-fit to content on
@@ -69,8 +70,8 @@ bash scripts/run.sh               # candle ch 0 @500k normal mode; add --loop-ba
   Clear DBC when loaded (File and Generator menus mirror both actions).
   Clearing stops DBC cyclic/entry timers and deletes DBC entries;
   Manual entries are untouched. RX rows gain Sender/Name/Decoded
-  columns; the DBC generator offers a message picker + signal editors with
-  range limits (editors scroll past 3 signals); DLC is automatic.
+   columns; the DBC generator offers a message picker + 2-column signal
+   editors with range limits (all signals visible); DLC is automatic.
   Works with any `.dbc`.
 - Export: CSV takes all columns incl. decoded text (filter applied) with
   Timestamp always as wall-clock plus an extra Epoch column (both from the

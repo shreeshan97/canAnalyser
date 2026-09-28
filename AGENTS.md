@@ -52,20 +52,25 @@ Trace columns: Index 40, Timestamp 160, Channel 75, RX/TX 50, Type 50,
 ID 70, Sender 75, DLC 40, Data Fixed 220, Name Interactive (default 140),
 Decoded Stretch, Comment Interactive (default 130).
 Window 1280x950, opening on the cursor's screen at that screen's
-origin + (200, 30); trace and bottom dock share
-a vertical QSplitter with per-tab dock sizes auto-fit to content on
-real content changes only (DBC load/clear, message switch; clamped to
-DOCK_MAX=350, space taken from the trace). Tab switches and user
-drags are never overridden — each tab remembers its size. The TX dock
-is collapsible to invisible via the splitter handle. Stretch 3:2 —
-never use minimums for tab content; hidden tab pages return stale
-layout sizeHints, so measure content via direct child-widget hints
-(`_page_content_height`). Entry action bars sit directly
-after the ID/Message input rows above their tables; Manual shows 4
-rows then scrolls, DBC shows 3 rows then scrolls; status card hugs content with x1.5 width baked
+origin + (200, 30). Vertical regions (`REGION_PX`, `GAP=4`, zero inner
+margins): toolbar 36 / filter 34 (View, Timestamps, Autoscroll, Clear,
+Filter) / RXTRACE flexible / tab bar 28 / TXINPUT 34 / TXSIGNALS
+(rows*30 + gaps, 2 signals per row, all rows shown, 0 when empty) /
+TXACTIONS 30 / TXTABLE 143 (header + 4 rows, then scrolls, both tabs).
+Trace and bottom dock share a vertical QSplitter (stretch 1:0, so
+RXTRACE absorbs all slack and no gaps remain); dock sizes auto-fit to
+content on real content changes only (DBC load/clear, message switch;
+65% ceiling, space taken from RXTRACE). Tab switches and user drags
+are never overridden — Manual Gen and DBC Gen each remember their
+size. Fixed-height regions (entry tables, `SignalRegion`) keep zero
+minimum height so a tall tab never props up the shared tab minimum
+(QTabWidget takes the max over pages) and leaves a gap strip on the
+other tabs; dock need is content + tab bar + live-measured chrome and
+lands exactly. The TX dock is collapsible to invisible via the
+splitter handle. Entry action bars sit directly after the ID/Message input
+rows above their tables; status card hugs content with x1.5 width baked
 into Interactive columns; DBC toolbar button toggles Load/Clear
-(`_sync_dbc_buttons()`; unload stops timers + deletes DBC entries only);
-signal editors live in a capped scroll area (`CappedScroll`, ~3 rows).
+(`_sync_dbc_buttons()`; unload stops timers + deletes DBC entries only).
 Setup dialog min width 460 (height follows content), Devices label
 top-aligned.
 Timestamps: Delta = per-(ID,direction) inter-arrival, `.6f`, first sighting
