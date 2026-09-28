@@ -10,8 +10,17 @@
 - Sender/Name/Decoded come from the loaded DBC (blank without one);
   Decoded is `SIGNAL=value, ...` in physical units. Comment is reserved.
 
-## Simple TX panel
-- ID (Hex): e.g. `123`; DLC 0..8; Data: hex bytes separated by space/comma
+## Manual TX (Manual Gen tab)
+- ID (Hex): e.g. `123` (IDs above `0x7FF` send as extended frames);
+  DLC 0..8 (default 8); Data: hex bytes separated by space/comma
   (shorter than DLC is zero-padded, longer is truncated).
-- Send Once transmits one frame; Start/Stop Cyclic uses Interval ms QTimer.
-- TX frames are echoed into the table as `TX` rows; bus frames appear as `RX`.
+- Send Once transmits one frame; Start/Stop Cyclic uses Interval ms.
+- TX frames appear in the table as local `TX` rows (firmware TX-echoes
+  are dropped, never double-counted); bus frames appear as `RX`.
+
+## Multi-message entries
+- Add Manual / Add DBC captures the current fields into the tab's
+  transmissions table (max 16 entries): per-row On checkbox, editable
+  interval 10–10000 ms, Send Selected Once, Start/Stop All.
+- Entry timers send quietly and auto-stop after 3 consecutive TX fails.
+- DBC entries snapshot the current signal values as the payload summary.

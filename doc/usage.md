@@ -35,8 +35,8 @@ bash scripts/run.sh               # candle ch 0 @500k normal mode; add --loop-ba
 ## UI
 - Start/Stop opens/closes the bus and reader thread; Setup Interface sets
   backend, bitrate, channel, loop-back.
-- Start greys out Start/Setup (Stop blacks in) and back; same for the
-  Measurement menu. Setup refuses while running ("Stop first").
+- While running, Start/Setup grey out and Stop enables (toolbar and
+  Measurement menu stay in sync). Setup refuses while running ("Stop first").
 - View Aggregated collapses same ID+direction into one row; Raw appends all.
 - Timestamps Delta = per-ID inter-arrival with microseconds: seconds since
   the previous frame with the same ID + direction (local receipt clock,
@@ -47,23 +47,21 @@ bash scripts/run.sh               # candle ch 0 @500k normal mode; add --loop-ba
 - Select trace/entry rows (Shift/Ctrl for multi-select) and press Ctrl+C
   or right-click for Copy selected rows (tab-separated text).
 - Autoscroll toggle (filter row + View menu, default ON).
-- Bottom tabs: Manual Gen and DBC Gen, each with its
-  action bar (Add/Remove/Send/Start/Stop) directly after the ID/Message
-  input row and above its transmissions table (per-row On checkbox and
-  editable interval; Manual TX defaults to DLC 8; both tables show
-  header + 4 rows then scroll at fixed 143px); DBC signals show in a
-  the trace); CAN Status is a fixed 600px card (Backend 130, Channel
-  110, State 110, Rx/Tx 82, Err 84 — counts never reshape it); Log
-  (timestamped events).
+- Bottom tabs: Manual Gen and DBC Gen, each with its action bar
+  (Add/Remove/Send/Start/Stop) directly after the ID/Message input row
+  and above its transmissions table (per-row On checkbox, editable
+  interval, Manual TX defaults to DLC 8; both tables show header +
+  4 rows then scroll at fixed 143px); CAN Status is a fixed 600px card
+  (Backend 130, Channel 110, State 110, Rx 82, Tx 82, Err 84 — counts
+  never reshape it); Log (timestamped events).
 - Window opens 1280x950 on the cursor's screen (screen origin + 200,30); trace table
   Decoded column takes the stretch. Trace and bottom dock share a
   draggable vertical splitter with per-tab dock sizes auto-fit to content on
-  real content changes only (DBC load/clear, message switch; clamped to
-  350px, space taken from the trace). Generator tab switches and user
-  drags are never overridden — Manual Gen and DBC Gen each remember
-  their size, and CAN Status/Log leave the dock untouched, so the TX
-  area is resizable and both generator tabs keep a constant height.
-- Menus: File (Load DBC, Export CSV/ASC, Exit), Measurement (Start/Stop),
+  real content changes only (DBC load/clear, message switch; capped at 65%
+  of the trace+dock height, space taken from the trace). Generator tab
+  switches and user drags are never overridden — Manual Gen and DBC Gen
+  each remember their size, and CAN Status/Log leave the dock untouched.
+- Menus: File (Load/Clear DBC, Export CSV/ASC, Exit), Measurement (Start/Stop),
   View (Autoscroll, Theme System/Light/Dark, Clear), Trace, Generator,
   Help → About (v0.1.0).
 
@@ -72,7 +70,7 @@ bash scripts/run.sh               # candle ch 0 @500k normal mode; add --loop-ba
   Clear DBC when loaded (File and Generator menus mirror both actions).
   Clearing stops DBC cyclic/entry timers and deletes DBC entries;
   Manual entries are untouched. RX rows gain Sender/Name/Decoded
-   columns; the DBC generator offers a message picker + 2-column signal
+  columns; the DBC generator offers a message picker + 2-column signal
    editors with range limits (all signals visible); DLC is automatic.
   Works with any `.dbc`.
 - Export: CSV takes all columns incl. decoded text (filter applied) with

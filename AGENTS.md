@@ -6,7 +6,7 @@ Normal mode by default (`loop_back=False`); silicon loopback is opt-in.
 
 ## Layout
 
-- `src/main_window.py` — all UI (~1200 lines): trace table, bottom tabs
+- `src/main_window.py` — all UI (~1400 lines): trace table, bottom tabs
   (Manual Gen, DBC Gen, CAN Status, Log), menubar,
   TX paths, `_sync_bus_buttons()`.
 - `src/can_backend.py` — `open_bus()`, `parse_tx_fields()`, `data_to_str()`.
@@ -26,8 +26,8 @@ Normal mode by default (`loop_back=False`); silicon loopback is opt-in.
   Markers in `pytest.ini`: dbc backend exporter theme worker trace decode
   tx entries failsafe ui.
 - `tests/data/example.dbc` — minimal 2-message fixture. `dbc/demo.dbc` —
-  richer 4-message demo for hands-on verification (EngineData, ControlCmd,
-  VehicleSpeed, ExtendedDiag incl. an extended ID).
+  richer 5-message demo for hands-on verification (EngineData, ControlCmd,
+  VehicleSpeed, ExtendedDiag incl. an extended ID, ManySignals).
 - `doc/usage.md`, `doc/protocol.md` — user docs; keep width/behavior specs
   in sync with code. `assets/icon.svg` is the source; `assets/icon.png`
   (256x256, rendered via `QSvgRenderer` with a QApplication constructed)
@@ -40,7 +40,7 @@ Normal mode by default (`loop_back=False`); silicon loopback is opt-in.
   (`~/.local/qtlibs` + `unset QT_QPA_PLATFORMTHEME`); never `cd`, pass
   `workdir` instead.
 - Run app: `bash scripts/run.sh` (candle) / `bash scripts/run_virtual.sh`.
-- Tests: `bash scripts/run_tests.sh` (full, ~30s, 45 tests);
+- Tests: `bash scripts/run_tests.sh` (full, ~30s, 54 tests);
   `bash scripts/run_tests.sh -m <marker>` for subsets.
 - Verify UI changes with offscreen screenshots (`/tmp/*.py` scratch scripts
   driving `MainWindow` + `.grab().save(...)`); read the PNGs back to check
@@ -87,16 +87,22 @@ TX Send/Cyclic/entry buttons intentionally stay enabled while stopped
 - Pixel/behavior specs above are test-asserted — update tests + docs together.
 - Hot RX path (`_append`, per frame): no Qt getters or string work per
   frame — modes/filter are cached (`_ts_delta`, `_view_agg`,
-  `_filter_text`), DBC scans are skipped when unloaded, and the status
-  column refit is throttled (2Hz, `force=True` on start/stop/clear).
+  `_filter_text`), DBC decode is one O(1) `message_by_id` lookup when
+  loaded, and the status bar/card push is throttled to 5Hz (forced on
+  start/stop/clear; table refit once at build + on theme change).
 - Quiet timers: timer-driven TX passes `quiet=True` (no modal dialogs over
   Stop); error paths auto-stop after 3 consecutive TX fails.
 - Commits use `git -c user.name="Shreesha SN" -c user.email=...`; terse
   imperative subjects. Commit only when asked.
+- Qt signal arity: `triggered`/`clicked` always pass a `checked` bool.
+  Never connect them directly to a slot with a defaulted first parameter
+  (e.g. `load_dbc(path=None)` swallows `False` as `path` and silently
+  no-ops) — wrap in `lambda:`. Real bug, covered by
+  `test_menu_load_dbc_actions_open_dialog`.
 - Don't reference product names in code/docs; no CANGaroo references.
-- No debug comments in code: no change-narration remarks (`# hug ...`,
-  `# collapse ...`, `# track ...`), no commented-out code, no `print`.
-  Docstrings that document behavior are fine.
+- No debug comments in code: no change-narration remarks, no
+  commented-out code, no `print`. Docstrings that document behavior
+  are fine.
 
 ## Open questions (ask the user before implementing)
 

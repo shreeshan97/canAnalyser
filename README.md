@@ -14,7 +14,7 @@ See `doc/usage.md` for hardware/udev notes, `doc/protocol.md` for table/filter f
 
 ## Tests
 ```bash
-bash scripts/run_tests.sh            # everything (41 tests)
+bash scripts/run_tests.sh            # everything (54 tests)
 bash scripts/run_tests.sh -m entries # one feature: dbc backend exporter
                                      # theme worker trace decode tx
                                      # entries failsafe ui
@@ -22,4 +22,4 @@ bash scripts/run_tests.sh tests/test_theme.py  # one file
 ```
 `tests/` covers DBC decode/encode, TX parsing, exporters, themes, the
 RX worker's echo/error filtering, and the main window (trace, filter,
-TX, per-tab entry tables, clear, autoscroll) — 48 tests, no hardware needed.
+  TX, per-tab entry tables, clear, autoscroll) — 54 tests, no hardware needed.
