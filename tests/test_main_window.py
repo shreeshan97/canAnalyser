@@ -680,6 +680,21 @@ def test_failed_open_keeps_start_enabled(win, qapp, monkeypatch):
 
 
 @pytest.mark.dbc
+def test_menu_load_dbc_actions_open_dialog(win, qapp, monkeypatch):
+    from tests.conftest import DEMO_DBC_PATH
+    monkeypatch.setattr("main_window.QFileDialog.getOpenFileName",
+                        lambda *a, **k: (DEMO_DBC_PATH, ""))
+    win.act_load_dbc.trigger()
+    qapp.processEvents()
+    assert win.dbc.loaded
+    win.clear_dbc()
+    qapp.processEvents()
+    win.act_gen_load_dbc.trigger()
+    qapp.processEvents()
+    assert win.dbc.loaded
+
+
+@pytest.mark.dbc
 def test_dbc_toggle_button_flips_label_and_action(win, qapp, monkeypatch):
     monkeypatch.setattr("main_window.QFileDialog.getOpenFileName",
                         lambda *a, **k: (DEMO_DBC_PATH, ""))
