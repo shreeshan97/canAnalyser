@@ -44,6 +44,8 @@ bash scripts/run.sh               # candle ch 0 @500k normal mode; add --loop-ba
   Absolute = local wall-clock 24h with microseconds (`HH:MM:SS.ffffff`,
   wraps at midnight).
 - Filter matches ID hex, data hex, or DBC name/signal text.
+- Select trace/entry rows (Shift/Ctrl for multi-select) and press Ctrl+C
+  or right-click for Copy selected rows (tab-separated text).
 - Autoscroll toggle (filter row + View menu, default ON).
 - Bottom tabs: Manual Gen and DBC Gen, each with its
   action bar (Add/Remove/Send/Start/Stop) directly after the ID/Message

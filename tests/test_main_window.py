@@ -104,6 +104,91 @@ def test_manual_tx_appends_tx_row(win, qapp):
         peer.shutdown()
 
 
+@pytest.mark.tx
+def test_tx_timers_are_precise(win):
+    from PySide6.QtCore import Qt
+    assert win.cyclic.timerType() == Qt.PreciseTimer
+    assert win.dbc_cyclic.timerType() == Qt.PreciseTimer
+    win.tx_id.setText("100")
+    win.tx_dlc.setValue(1)
+    win.tx_data.setText("00")
+    win.add_manual_entry()
+    assert win.man_entries.start_all() == 1
+    try:
+        assert win.man_entries.entries[0]["timer"].timerType() == \
+            Qt.PreciseTimer
+    finally:
+        win.man_entries.stop_all()
+
+
+@pytest.mark.trace
+def test_driver_time_reaches_record(win, qapp):
+    win.view.setCurrentText("Raw")
+    win.start()
+    _pump(qapp, 0.3)
+    peer = can.interface.Bus(interface="virtual", channel="pytest-gui",
+                             receive_own_messages=False)
+    sniffer = can.interface.Bus(interface="virtual", channel="pytest-gui",
+                                receive_own_messages=False)
+    try:
+        peer.send(can.Message(arbitration_id=0x123, data=[7],
+                              is_extended_id=False))
+        got = sniffer.recv(timeout=2.0)
+        assert got is not None
+        _pump(qapp)
+        rec = next(r for r in win.records if r["arb_id"] == 0x123)
+        assert rec["ts_bus"] == got.timestamp
+        assert abs(rec["ts_local"] - rec["ts_bus"]) < 2.0
+    finally:
+        peer.shutdown()
+        sniffer.shutdown()
+
+
+@pytest.mark.trace
+def test_trace_copy_selected_rows(win, qapp):
+    from PySide6.QtCore import QItemSelectionModel
+    from PySide6.QtWidgets import QAbstractItemView, QApplication
+
+    from main_window import COLUMNS, copy_table_selection
+    win.view.setCurrentText("Raw")
+    for arb in (0x100, 0x101, 0x102):
+        win._append({"timestamp": 0.0, "local_ts": 1758982341.0 + arb,
+                     "channel": "ch", "direction": "RX", "extended": False,
+                     "arb_id": arb, "dlc": 1, "data": bytes([arb & 0xFF])})
+    qapp.processEvents()
+    assert win.table.selectionMode() == QAbstractItemView.ExtendedSelection
+    model = win.table.selectionModel()
+    for r in range(3):
+        model.select(win.table.model().index(r, 0),
+                     QItemSelectionModel.Select | QItemSelectionModel.Rows)
+    assert copy_table_selection(win.table) == 3
+    lines = QApplication.clipboard().text().split("\n")
+    assert len(lines) == 3
+    first = lines[0].split("\t")
+    assert len(first) == len(COLUMNS)
+    assert first[COLUMNS.index("ID")] == "0x100"
+    assert first[COLUMNS.index("RX/TX")] == "RX"
+    assert lines[2].split("\t")[COLUMNS.index("ID")] == "0x102"
+
+
+@pytest.mark.entries
+def test_entry_copy_selected_row(win, qapp):
+    from PySide6.QtWidgets import QApplication
+
+    from main_window import copy_table_selection
+    win.tx_id.setText("100")
+    win.tx_dlc.setValue(1)
+    win.tx_data.setText("AB")
+    win.add_manual_entry()
+    qapp.processEvents()
+    win.man_entries.table.selectRow(0)
+    assert copy_table_selection(win.man_entries.table) == 1
+    cells = QApplication.clipboard().text().split("\t")
+    assert len(cells) == len(win.man_entries.COLS)
+    assert cells[1] == "Manual"
+    assert cells[2] == "0x100"
+
+
 @pytest.mark.trace
 def test_filter_hides_and_restores(win, qapp):
     win.view.setCurrentText("Raw")
