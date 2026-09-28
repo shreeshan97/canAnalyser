@@ -207,17 +207,40 @@ def test_failing_entry_auto_stops(win, qapp):
 
 
 @pytest.mark.ui
-def test_default_and_minimum_size(win):
+def test_default_size(win):
     assert (win.width(), win.height()) == (1280, 950)
-    assert (win.pos().x(), win.pos().y()) == (200, 30)
-    assert win.minimumWidth() == 1000
-    assert win.minimumHeight() == 650
 
 
 @pytest.mark.ui
-def test_generator_inner_tabs(win):
-    assert [win.gen_tabs.tabText(i) for i in range(win.gen_tabs.count())] == [
-        "Manual", "DBC"]
+def test_window_follows_cursor_screen(qapp, monkeypatch):
+    from PySide6.QtCore import QRect
+    from PySide6.QtWidgets import QApplication
+
+    from main_window import MainWindow
+    primary = mock.Mock()
+    primary.geometry.return_value = QRect(0, 0, 1920, 1080)
+    monkeypatch.setattr(QApplication, "screenAt",
+                        mock.Mock(return_value=primary))
+    w1 = MainWindow(backend="virtual", channel="pytest-cursor1")
+    try:
+        assert (w1.pos().x(), w1.pos().y()) == (200, 30)
+    finally:
+        w1.close()
+    second = mock.Mock()
+    second.geometry.return_value = QRect(1920, 0, 1920, 1080)
+    monkeypatch.setattr(QApplication, "screenAt",
+                        mock.Mock(return_value=second))
+    w2 = MainWindow(backend="virtual", channel="pytest-cursor2")
+    try:
+        assert (w2.pos().x(), w2.pos().y()) == (2120, 30)
+    finally:
+        w2.close()
+
+
+@pytest.mark.ui
+def test_bottom_tabs_flat(win):
+    assert [win.tabs.tabText(i) for i in range(win.tabs.count())] == [
+        "Manual Gen", "DBC Gen", "CAN Status", "Log"]
 
 
 @pytest.mark.ui
@@ -373,15 +396,22 @@ def test_splitter_per_tab_dock_sizes(win, qapp):
     win.load_dbc(DEMO_DBC_PATH)
     win.dbc_msg.setCurrentText("ManySignals")
     qapp.processEvents()
-    win.gen_tabs.setCurrentIndex(0)
+    win.tabs.setCurrentIndex(0)
     qapp.processEvents()
     man_dock = win.split.sizes()[1]
-    win.gen_tabs.setCurrentIndex(1)
+    win.tabs.setCurrentIndex(1)
     qapp.processEvents()
     dbc_dock = win.split.sizes()[1]
     assert dbc_dock > man_dock
     assert man_dock < 300
     assert dbc_dock <= 350
+    frozen = win.split.sizes()[1]
+    win.tabs.setCurrentIndex(2)
+    qapp.processEvents()
+    assert win.split.sizes()[1] == frozen
+    win.tabs.setCurrentIndex(3)
+    qapp.processEvents()
+    assert win.split.sizes()[1] == frozen
 
 
 @pytest.mark.ui
@@ -590,8 +620,7 @@ def test_clear_dbc_stops_and_deletes_dbc_entries(win, qapp):
 
 @pytest.mark.dbc
 def test_signal_editors_scroll_cap(win, qapp):
-    win.tabs.setCurrentIndex(0)
-    win.gen_tabs.setCurrentIndex(1)
+    win.tabs.setCurrentIndex(1)
     qapp.processEvents()
     win.load_dbc(DEMO_DBC_PATH)
     win.dbc_msg.setCurrentText("ManySignals")

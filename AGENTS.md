@@ -6,8 +6,8 @@ Normal mode by default (`loop_back=False`); silicon loopback is opt-in.
 
 ## Layout
 
-- `src/main_window.py` — all UI (~1100 lines): trace table, bottom tabs
-  (Generator with inner Manual|DBC tabs, CAN Status, Log), menubar,
+- `src/main_window.py` — all UI (~1200 lines): trace table, bottom tabs
+  (Manual Gen, DBC Gen, CAN Status, Log), menubar,
   TX paths, `_sync_bus_buttons()`.
 - `src/can_backend.py` — `open_bus()`, `parse_tx_fields()`, `data_to_str()`.
 - `src/rx_worker.py` — reader thread; drops TX-echo + error frames (error
@@ -51,7 +51,8 @@ Normal mode by default (`loop_back=False`); silicon loopback is opt-in.
 Trace columns: Index 40, Timestamp 160, Channel 75, RX/TX 50, Type 50,
 ID 70, Sender 75, DLC 40, Data Fixed 220, Name Interactive (default 140),
 Decoded Stretch, Comment Interactive (default 130).
-Window 1280x950 at (200,30), min 1000x650; trace and bottom dock share
+Window 1280x950, opening on the cursor's screen at that screen's
+origin + (200, 30); trace and bottom dock share
 a vertical QSplitter with per-tab dock sizes auto-fit to content on
 real content changes only (DBC load/clear, message switch; clamped to
 DOCK_MAX=350, space taken from the trace). Tab switches and user
@@ -93,5 +94,4 @@ TX Send/Cyclic/entry buttons intentionally stay enabled while stopped
 
 ## Open questions (ask the user before implementing)
 
-- Persist window position via QSettings (currently always starts 200,30)?
 - Dim the `Inactive` palette group (unfocused window currently looks focused)?

@@ -4,10 +4,11 @@ import os
 import time
 
 import can
-from PySide6.QtCore import QThread, QTimer, Qt
-from PySide6.QtGui import QAction, QActionGroup, QIcon
+from PySide6.QtCore import QPoint, QThread, QTimer, Qt
+from PySide6.QtGui import QAction, QActionGroup, QCursor, QIcon
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QCheckBox, QDoubleSpinBox,
+    QApplication, QComboBox, QDialog, QDialogButtonBox, QCheckBox,
+    QDoubleSpinBox,
     QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSpinBox,
     QSplitter, QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
@@ -275,13 +276,22 @@ class EntryTable(QWidget):
 
 
 class MainWindow(QMainWindow):
+    @staticmethod
+    def _startup_pos():
+        """Open on the cursor's screen at that screen's origin + (200, 30)."""
+        screen = QApplication.screenAt(QCursor.pos())
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        if screen is None:
+            return QPoint(200, 30)
+        return screen.geometry().topLeft() + QPoint(200, 30)
+
     def __init__(self, backend="candle", channel=0, bitrate=500000,
                  loop_back=False):
         super().__init__()
         self.setWindowTitle(f"canAnalyser {VERSION}")
         self.resize(1280, 950)
-        self.move(200, 30)
-        self.setMinimumSize(1000, 650)
+        self.move(self._startup_pos())
         icon = os.path.join(os.path.dirname(__file__), "..", "assets", "icon.png")
         if os.path.exists(icon):
             self.setWindowIcon(QIcon(icon))
@@ -387,9 +397,13 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("QTabBar::tab { width: 150px; }")
-        self.tabs.addTab(self._generator_tab(), "Generator")
+        self._dock_sizes = {0: [560, 265], 1: [475, 350]}
+        self._last_gen_tab = 0
+        self.tabs.addTab(self._manual_tab(), "Manual Gen")
+        self.tabs.addTab(self._dbc_tab(), "DBC Gen")
         self.tabs.addTab(self._status_tab(), "CAN Status")
         self.tabs.addTab(self._log_tab(), "Log")
+        self.tabs.currentChanged.connect(self._on_dock_tab_changed)
         split = QSplitter(Qt.Vertical)
         split.addWidget(self.table)
         split.addWidget(self.tabs)
@@ -404,12 +418,7 @@ class MainWindow(QMainWindow):
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage("idle — press Start")
 
-    def _generator_tab(self):
-        w = QWidget()
-        lay = QVBoxLayout(w)
-        lay.setContentsMargins(0, 0, 0, 0)
-        self.gen_tabs = QTabWidget()
-        self.gen_tabs.setStyleSheet("QTabBar::tab { width: 120px; }")
+    def _manual_tab(self):
         man = QWidget()
         man_lay = QVBoxLayout(man)
         man_lay.setContentsMargins(0, 0, 0, 0)
@@ -421,6 +430,10 @@ class MainWindow(QMainWindow):
             visible_rows=4)
         man_lay.addWidget(self.man_entries)
         man_lay.addStretch(1)
+        self._man_page = man
+        return man
+
+    def _dbc_tab(self):
         dbc = QWidget()
         dbc_lay = QVBoxLayout(dbc)
         dbc_lay.setContentsMargins(0, 0, 0, 0)
@@ -432,12 +445,16 @@ class MainWindow(QMainWindow):
             visible_rows=3)
         dbc_lay.addWidget(self.dbc_entries)
         dbc_lay.addStretch(1)
-        self.gen_tabs.addTab(man, "Manual")
-        self.gen_tabs.addTab(dbc, "DBC")
-        self._dock_sizes = {0: [560, 265], 1: [475, 350]}
-        self.gen_tabs.currentChanged.connect(self._apply_dock_size)
-        lay.addWidget(self.gen_tabs)
-        return w
+        self._dbc_page = dbc
+        return dbc
+
+    def _gen_page(self, idx):
+        return self._man_page if idx == 0 else self._dbc_page
+
+    def _on_dock_tab_changed(self, idx):
+        if idx in (0, 1):
+            self._last_gen_tab = idx
+            self._apply_dock_size(idx)
 
     def _apply_dock_size(self, idx):
         """Restore the remembered dock size for this tab. Tab switches
@@ -453,8 +470,8 @@ class MainWindow(QMainWindow):
                 self.split.blockSignals(False)
 
     def _remember_dock_size(self, _pos, _index):
-        if hasattr(self, "gen_tabs"):
-            self._dock_sizes[self.gen_tabs.currentIndex()] = \
+        if hasattr(self, "tabs") and self.tabs.currentIndex() in (0, 1):
+            self._dock_sizes[self.tabs.currentIndex()] = \
                 self.split.sizes()
 
     def _page_content_height(self, page):
@@ -483,19 +500,17 @@ class MainWindow(QMainWindow):
         actually changes (DBC load/clear, message switch)."""
         if not hasattr(self, "split") or not hasattr(self, "_dock_sizes"):
             return
-        try:
-            page = self.gen_tabs.widget(idx)
-        except RuntimeError:
+        if idx not in (0, 1):
             return
+        page = self._gen_page(idx)
         if page is None:
             return
         need = (self._page_content_height(page)
-                + self.gen_tabs.tabBar().sizeHint().height()
                 + self.tabs.tabBar().sizeHint().height())
         total = sum(self.split.sizes()) or 825
         need = max(150, min(need, DOCK_MAX, int(total * 0.65)))
         self._dock_sizes[idx] = [total - need, need]
-        if self.gen_tabs.currentIndex() == idx:
+        if self.tabs.currentIndex() == idx:
             self.split.blockSignals(True)
             try:
                 self.split.setSizes(self._dock_sizes[idx])
@@ -506,7 +521,7 @@ class MainWindow(QMainWindow):
         return
 
     def _active_entries(self):
-        return self.man_entries if self.gen_tabs.currentIndex() == 0 \
+        return self.man_entries if self._last_gen_tab == 0 \
             else self.dbc_entries
 
     def _manual_group(self):
@@ -891,7 +906,7 @@ class MainWindow(QMainWindow):
                     self.sig_editors[s.name] = box
                 self.dbc_sig_scroll.setVisible(bool(self.sig_editors))
         self._fit_dock_height()
-        if hasattr(self, "gen_tabs"):
+        if hasattr(self, "_dbc_page"):
             self._refit_dock_to_content(1)
 
     # ---- bus control ----

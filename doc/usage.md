@@ -45,20 +45,21 @@ bash scripts/run.sh               # candle ch 0 @500k normal mode; add --loop-ba
   wraps at midnight).
 - Filter matches ID hex, data hex, or DBC name/signal text.
 - Autoscroll toggle (toolbar + View menu, default ON).
-- Bottom tabs: Generator with inner Manual | DBC tabs, each with its
+- Bottom tabs: Manual Gen and DBC Gen, each with its
   action bar (Add/Remove/Send/Start/Stop) directly after the ID/Message
   input row and above its transmissions table (per-row On checkbox and
   editable interval; Manual TX defaults to DLC 8; Manual shows 4 rows
   then scrolls, DBC 3 rows then scrolls); CAN Status is a compact card
   CAN Status is a compact card hugging its content with 50% column air
   (backend/channel/state/Rx/Tx/Err); Log (timestamped events).
-- Window opens 1280x950 at (200, 30) (1000x650 minimum); trace table
+- Window opens 1280x950 on the cursor's screen (screen origin + 200,30); trace table
   Decoded column takes the stretch. Trace and bottom dock share a
   draggable vertical splitter with per-tab dock sizes auto-fit to content on
   real content changes only (DBC load/clear, message switch; clamped to
-  350px, space taken from the trace). Tab switches and user drags are
-  never overridden — each tab remembers its size, so the TX area is
-  resizable and both Generator tabs keep a constant height.
+  350px, space taken from the trace). Generator tab switches and user
+  drags are never overridden — Manual Gen and DBC Gen each remember
+  their size, and CAN Status/Log leave the dock untouched, so the TX
+  area is resizable and both generator tabs keep a constant height.
 - Menus: File (Load DBC, Export CSV/ASC, Exit), Measurement (Start/Stop),
   View (Autoscroll, Theme System/Light/Dark, Clear), Trace, Generator,
   Help → About (v0.1.0).
